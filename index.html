@@ -13,39 +13,68 @@
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #0d1324;
-            /* Darker midnight blue */
+            background-color: #000000;
+            /* Solid black background - stays unfiltered */
             font-family: 'Inter', sans-serif;
             /* Post FX applied on #app-root for better mobile compatibility */
         }
+        
+        /* Pure black background layer that doesn't receive filters */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: #000000;
+            z-index: -2;
+        }
+
 
         canvas {
             display: block;
         }
 
-        #background-layer {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: -1;
-            pointer-events: none;
-        }
-
-        #background-canvas {
-            width: 100%;
-            height: 100%;
-            display: block;
-            background: rgba(13, 19, 36, 0.1);
-        }
+        /* Background particles removed */
 
         /* App root that receives post-processing filter on all content */
         #app-root {
             position: fixed;
             inset: 0;
-            -webkit-filter: url(#redMapGlow);
-            filter: url(#redMapGlow);
+        }
+        
+        /* Universal post-processing using CSS filters (works on all platforms) */
+        #scene-root, #ui-layer {
+            filter: saturate(3) contrast(2) brightness(1) invert(1);
+            -webkit-filter: saturate(2) contrast(2) brightness(2) ;
+        }
+        
+        /* Red screen overlay - vibrant neon red (multiply layer to darken inverted background) */
+        #app-root::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(ellipse at center, 
+                rgba(255, 0, 0, 0.95) 0%, 
+                rgb(255, 0, 0) 50%,
+                rgb(255, 0, 0) 100%);
+            mix-blend-mode:darken;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        /* Additional glow layer for neon effect */
+        #app-root::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(ellipse at center, 
+                transparent 0%, 
+                rgb(0, 0, 0) 100%,
+                transparent 100%);
+            mix-blend-mode: screen;
+            pointer-events: none;
+            z-index: 99;
+            filter: blur(40px);
+            -webkit-filter: blur(40px);
         }
 
         /* Hosting container for the WebGL canvas to make mobile layering explicit */
@@ -62,7 +91,48 @@
             display: block;
         }
 
+        /* Ensure background stays pure black - override any inherited filters */
+        body, body::before {
+            filter: none !important;
+            -webkit-filter: none !important;
+        }
 
+
+
+        /* Page title */
+        #page-title {
+            position: fixed;
+            top: 2vh;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: clamp(48px, 12vw, 120px);
+            font-weight: 900;
+            letter-spacing: 0.3em;
+            color: #ffffff;
+            text-transform: lowercase;
+            pointer-events: none;
+            z-index: 15;
+            user-select: none;
+            /* Title should also be filtered for consistency */
+            filter: saturate(16) contrast(1) brightness(1) invert(1);
+            -webkit-filter: saturate(1) contrast(1) brightness(1) invert(1);
+        }
+        
+        #page-title span {
+            display: inline-block;
+            animation: titleJitter 4s linear infinite;
+            font-family:monospace;
+            font-size:20px;
+        }
+        
+        @keyframes titleJitter {
+            0%, 100% {
+                transform: translate(var(--jx, 0), var(--jy, 0)) rotate(var(--jr, 0));
+            }
+            50% {
+                transform: translate(calc(var(--jx, 0) * -0.5), calc(var(--jy, 0) * -0.5)) rotate(calc(var(--jr, 0) * -0.5));
+            }
+        }
 
         /* Persona/Katamari inspired UI layer */
         #ui-layer {
@@ -262,22 +332,24 @@
 
 
 
-    <!-- Background particle layer (outside app-root so it's not affected by post-processing) -->
-    <div id="background-layer">
-        <canvas id="background-canvas"></canvas>
-    </div>
+    <!-- Background particles removed -->
 
     <!-- Wrap all on-screen content for unified mobile-friendly post FX -->
     <div id="app-root">
+        <!-- Page title -->
+        <div id="page-title">
+            <span>l</span><span>o</span><span>p</span><span>s</span><span>1</span><span>d</span><span>e</span>
+        </div>
+
         <!-- Scene root ensures canvas stacking is explicit on mobile -->
         <div id="scene-root"></div>
 
         <!-- Persona/Katamari inspired UI container -->
         <div id="ui-layer" aria-hidden="true">
-            <button class="speech-bubble top-left" data-quadrant="tl"><span class="letters">YEAH!</span><span class="tail"></span></button>
-            <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">LET'S GO!</span><span class="tail"></span></button>
-            <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
-            <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
+            <button class="speech-bubble top-left" data-quadrant="tl"><span class="letters">nothing</span><span class="tail"></span></button>
+            <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">to</span><span class="tail"></span></button>
+            <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">see</span><span class="tail"></span></button>
+            <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">yet</span><span class="tail"></span></button>
         </div>
     </div>
 
