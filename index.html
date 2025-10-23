@@ -16,8 +16,7 @@
             background-color: #0d1324;
             /* Darker midnight blue */
             font-family: 'Inter', sans-serif;
-            /* Global post FX for the whole page */
-            filter: url(#redMapGlow);
+            /* Post FX applied on #app-root for better mobile compatibility */
         }
 
         canvas {
@@ -45,6 +44,8 @@
         #app-root {
             position: fixed;
             inset: 0;
+            /* Safari/iOS prefers vendor-prefixed filters on containers */
+            -webkit-filter: url(#redMapGlow);
             filter: url(#redMapGlow);
         }
 
@@ -65,7 +66,7 @@
 
         /* Persona/Katamari inspired UI layer */
         #ui-layer {
-            position: absolute;
+            position: fixed;
             inset: 0;
             pointer-events: none; /* let canvas keep receiving drags */
             z-index: 10; /* stay above the canvas */
