@@ -6,12 +6,18 @@
     <title>lops1de</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        html, body {
+            height: 100%;
+        }
+
         body {
             margin: 0;
             overflow: hidden;
             background-color: #0d1324;
             /* Darker midnight blue */
             font-family: 'Inter', sans-serif;
+            /* Global post FX for the whole page */
+            filter: url(#redMapGlow);
         }
 
         canvas {
@@ -47,6 +53,13 @@
             position: absolute;
             inset: 0;
             z-index: 0;
+        }
+
+        /* Ensure canvas always scales to viewport on mobile */
+        #scene-root canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
         }
 
 
@@ -205,9 +218,9 @@
         <filter id="redMapGlow">
             <!-- Convert to luminance -->
             <feColorMatrix type="matrix" values="
-                0.5126 -0.3152 -0.1022 0 0
-                0.0126 -0.2152 0.5022 0 0
-                0.0126 -0.5152 0.0022 0 0
+                0.2126 0.7152 0.0722 0 0
+                0.2126 0.7152 0.0722 0 0
+                0.2126 0.7152 0.0722 0 0
                 0      0      0      1 0" result="lum"/>
 
             <!-- Hard map: near-white -> strong red, darker -> black -->
@@ -636,7 +649,7 @@
             // Attach WebGL canvas inside #scene-root for reliable mobile z-ordering
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-            renderer.setSize(window.innerWidth, window.innerHeight, false);
+            renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.getElementById('scene-root').appendChild(renderer.domElement);
@@ -880,7 +893,7 @@
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight, false);
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function screenPositionOfObject(obj, camera) {
