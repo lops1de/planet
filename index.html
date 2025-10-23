@@ -158,7 +158,7 @@
             position: absolute;
             width: clamp(140px, 26vw, 240px);
             min-height: 64px;
-            color: #ffffff;
+            color: #000000;
             font-weight: 1000;
             letter-spacing: 0.8px;
             text-transform: uppercase;
@@ -908,13 +908,13 @@
                         const span = document.createElement('span');
                         span.textContent = ch;
                         // random small offsets/rotation and stagger
-                        const jx = (Math.random() * 2 - 1) * 0.7; // -1.5..1.5px
-                        const jy = (Math.random() * 2 - 1) * 0.7;
-                        const jr = (Math.random() * 2 - 1) * 1;   // -2..2deg
+                        const jx = (Math.random() * 2- 1) * 1; // -1.5..1.5px
+                        const jy = (Math.random() * 2 - 1) * 1;
+                        const jr = (Math.random() * 2 - 1) * 2;   // -2..2deg
                         span.style.setProperty('--jx', jx + 'px');
                         span.style.setProperty('--jy', jy + 'px');
                         span.style.setProperty('--jr', jr + 'deg');
-                        span.style.animationDelay = (i * 0.01) + 's';
+                        span.style.animationDelay = (i * 0.03) + 's';
                         label.appendChild(span);
                     });
                     label.dataset.split = '1';
