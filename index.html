@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>lops1de</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0d1324;
+            /* Darker midnight blue */
+            font-family: 'Inter', sans-serif;
+            /* Apply global red-only gradient-map + glow */
+            filter: url(#redMapGlow);
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #background-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        #background-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: rgba(13, 19, 36, 0.1);
+        }
+
+
+        /* Persona/Katamari inspired UI layer */
+        #ui-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none; /* let canvas keep receiving drags */
+            z-index: 10; /* stay above the canvas */
+        }
+
+        #ui-layer.show .speech-bubble {
+            opacity: 1;
+            transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(1);
+        }
+
+        .speech-bubble {
+            position: absolute;
+            width: clamp(140px, 26vw, 240px);
+            min-height: 64px;
+            color: #ffffff;
+            font-weight: 1000;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            background: #fff8ea;
+            --accent: #ff5724d8; /* Persona/Katamari orange-red */
+            /* jaggy comic panel */
+            --path: polygon(6% 0, 18% 6%, 34% 2%, 56% 8%, 74% 2%, 90% 9%, 100% 6%,
+                           96% 26%, 100% 46%, 96% 70%, 100% 96%, 74% 100%, 52% 96%,
+                           30% 100%, 8% 96%, 4% 72%, 0 52%, 5% 28%);
+            clip-path: var(--path);
+            padding: 2cqb 20px;
+            border: none; /* border is drawn by ::before */
+            outline: none;
+            box-shadow: 0 10px 0 rgba(255, 72, 72, 0.25);
+            transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.96);
+            opacity: 0;
+            transition: opacity 160ms ease, transform 200ms cubic-bezier(.2,.9,.2,1);
+            pointer-events: auto; /* clickable buttons */
+            cursor: pointer;
+            user-select: none;
+            animation: floaty 3.2s ease-in-out infinite, warble 4s ease-in-out infinite;
+            z-index: 1; /* create a local stacking context for ::before/::after */
+        }
+
+        .speech-bubble::before { /* thick black border following the jaggy shape */
+            content: "";
+            position: absolute;
+            inset: -6px;
+            background: #ff5f02;
+            clip-path: var(--path);
+            z-index: -1;
+        }
+
+        /* Hard dropshadow in accent color (no blur) */
+        .speech-bubble::after {
+            content: "";
+            position: absolute;
+            inset: 0px; /* expanded from default for bigger silhouette */
+            background: var(--accent);
+            clip-path: var(--path);
+            transform: translate(2px, 0px) scale(0.9); /* larger hard offset + size */
+            z-index: -1; /* behind bubble but above canvas */
+        }
+
+        .speech-bubble:hover {
+            transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(1.08) translateY(-2px);
+            box-shadow: 0 15px 35px rgba(255, 72, 72, 0.4);
+            background: #ff5724d8;
+            color: #ff5f02;
+            animation-play-state: paused;
+            width: clamp(140px, 38vw, 240px);
+        }
+
+        .speech-bubble:hover::before {
+            background: #ffffff;
+        }
+
+        .speech-bubble:hover::after {
+            background: #ffffff;
+        }
+
+        .speech-bubble:active {
+            transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(2.98) translateY(1px);
+            transition: all 0.1s ease;
+        }
+
+        /* Jittered per-letter text */
+        .speech-bubble .letters span {
+            display: inline-block;
+            will-change: transform;
+            animation: jitter 0.9s ease-in-out infinite;
+            font-size: 1.9em;
+        }
+
+        @keyframes jitter {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            30% { transform: translate(var(--jx, 1px), var(--jy, -1px)) rotate(var(--jr, 1deg)); }
+            60% { transform: translate(calc(var(--jx, 1px) * -1), calc(var(--jy, 1px) * -1)) rotate(calc(var(--jr, 1deg) * -1)); }
+        }
+
+        @keyframes warble {
+            0%, 100% { transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.96) rotate(0deg); }
+            25% { transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.98) rotate(0.5deg); }
+            50% { transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.96) rotate(0deg); }
+            75% { transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.98) rotate(-0.5deg); }
+        }
+
+        /* Bubble tails (diamond rotated 45deg) with black border */
+        .speech-bubble .tail {
+            position: absolute;
+            transform: rotate(45deg);
+            background: #fff8ea;
+        }
+        .speech-bubble .tail::before {
+            content: "";
+            position: absolute;
+            inset: 0px;
+            background: #ffffff;
+            z-index: -1;
+        }
+
+        /* Tail hard dropshadow matching accent */
+        .speech-bubble .tail::after {
+            content: "";
+            position: absolute;
+            inset: -10px;
+            background: var(--accent);
+            transform: translate(36px, 36px) scale(1.12);
+            z-index: -1;
+        }
+
+        /* Quadrant-specific tilt and tail positions */
+        .speech-bubble.top-left { --rot: -6deg; }
+        .speech-bubble.top-right { --rot: 5deg; }
+        .speech-bubble.bottom-left { --rot: 4deg; }
+        .speech-bubble.bottom-right { --rot: -4deg; }
+
+        .speech-bubble.top-left .tail { right: -10px; bottom: -10px; }
+        .speech-bubble.top-right .tail { left: -10px; bottom: -10px; }
+        .speech-bubble.bottom-left .tail { right: -10px; top: -10px; }
+        .speech-bubble.bottom-right .tail { left: -10px; top: -10px; }
+
+        @keyframes floaty {
+            0%, 100% { translate: 0 0; }
+            50% { translate: 0 -8px; }
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- Global SVG filter: maps luminance to red/black and adds neon glow -->
+    <svg width="0" height="0" style="position:absolute">
+        <filter id="redMapGlow">
+            <!-- Convert to luminance -->
+            <feColorMatrix type="matrix" values="
+                0.5126 -0.3152 -0.1022 0 0
+                0.0126 -0.2152 0.5022 0 0
+                0.0126 -0.5152 0.0022 0 0
+                0      0      0      1 0" result="lum"/>
+
+            <!-- Hard map: near-white -> strong red, darker -> black -->
+            <feComponentTransfer in="lum" result="map">
+                <feFuncR type="table" tableValues="0 1"/>
+                <feFuncG type="discrete" tableValues="0 0"/>
+                <feFuncB type="discrete" tableValues="0 0"/>
+                <feFuncA type="table" tableValues="0 1"/>
+            </feComponentTransfer>
+
+            <!-- Soft bloom/glow: blur the red and add back -->
+            <feGaussianBlur in="map" stdDeviation="2" result="blur1"/>
+            <feGaussianBlur in="map" stdDeviation="6" result="blur2"/>
+            <feMerge result="glow">
+                <feMergeNode in="blur1"/>
+                <feMergeNode in="blur2"/>
+                <feMergeNode in="map"/>
+            </feMerge>
+
+            <!-- Boost red intensity slightly -->
+            <feColorMatrix in="glow" type="matrix" values="
+                1.8 0   0   0 0
+                0   0   0   0 0
+                0   0   0   0 0
+                0   0   0   1 0"/>
+        </filter>
+    </svg>
+
+
+
+    <!-- Background particle layer -->
+    <div id="background-layer">
+        <canvas id="background-canvas"></canvas>
+    </div>
+
+    <!-- Persona/Katamari inspired UI container -->
+    <div id="ui-layer" aria-hidden="true">
+        <button class="speech-bubble top-left" data-quadrant="tl"><span class="letters">YEAH!</span><span class="tail"></span></button>
+        <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">LET'S GO!</span><span class="tail"></span></button>
+        <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
+        <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.skypack.dev/three@0.128.0/build/three.module.js",
+          "three/addons/": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // Background Particle System
+        class BackgroundParticles {
+            constructor() {
+                this.canvas = document.getElementById('background-canvas');
+                if (!this.canvas) {
+                    console.error('Background canvas not found!');
+                    return;
+                }
+                this.ctx = this.canvas.getContext('2d');
+                this.particles = [];
+                this.colors = ['#ff5f02', '#ff5724d8', '#60dd75', '#ffdab9', '#add8e6'];
+                this.shapes = ['circle', 'square', 'triangle', 'diamond'];
+                
+                this.resize();
+                this.createParticles();
+                this.animate();
+                
+                window.addEventListener('resize', () => this.resize());
+            }
+            
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                console.log(`Canvas resized to ${this.canvas.width}x${this.canvas.height}`);
+            }
+            
+            createParticles() {
+                const particleCount = 20;
+                for (let i = 0; i < particleCount; i++) {
+                    this.particles.push({
+                        x: Math.random() * this.canvas.width,
+                        y: Math.random() * this.canvas.height,
+                        vx: (Math.random() - 0.5) * 0.5,
+                        vy: (Math.random() - 0.5) * 0.5,
+                        size: Math.random() * 20 + 15,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                        shape: this.shapes[Math.floor(Math.random() * this.shapes.length)],
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.02
+                    });
+                }
+                console.log(`Created ${this.particles.length} particles`);
+            }
+            
+            updateParticles() {
+                this.particles.forEach(particle => {
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+                    particle.rotation += particle.rotationSpeed;
+                    
+                    // Wrap around screen
+                    if (particle.x < -particle.size) particle.x = this.canvas.width + particle.size;
+                    if (particle.x > this.canvas.width + particle.size) particle.x = -particle.size;
+                    if (particle.y < -particle.size) particle.y = this.canvas.height + particle.size;
+                    if (particle.y > this.canvas.height + particle.size) particle.y = -particle.size;
+                });
+            }
+            
+            drawParticle(particle) {
+                this.ctx.save();
+                this.ctx.translate(particle.x, particle.y);
+                this.ctx.rotate(particle.rotation);
+                
+                // Make particles more visible
+                this.ctx.globalAlpha = 0.8;
+                this.ctx.fillStyle = particle.color;
+                this.ctx.strokeStyle = '#000';
+                this.ctx.lineWidth = 2;
+                
+                const size = particle.size;
+                
+                switch (particle.shape) {
+                    case 'circle':
+                        this.ctx.beginPath();
+                        this.ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+                        this.ctx.fill();
+                        this.ctx.stroke();
+                        break;
+                    case 'square':
+                        this.ctx.fillRect(-size / 2, -size / 2, size, size);
+                        this.ctx.strokeRect(-size / 2, -size / 2, size, size);
+                        break;
+                    case 'triangle':
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(0, -size / 2);
+                        this.ctx.lineTo(-size / 2, size / 2);
+                        this.ctx.lineTo(size / 2, size / 2);
+                        this.ctx.closePath();
+                        this.ctx.fill();
+                        this.ctx.stroke();
+                        break;
+                    case 'diamond':
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(0, -size / 2);
+                        this.ctx.lineTo(size / 2, 0);
+                        this.ctx.lineTo(0, size / 2);
+                        this.ctx.lineTo(-size / 2, 0);
+                        this.ctx.closePath();
+                        this.ctx.fill();
+                        this.ctx.stroke();
+                        break;
+                }
+                
+                this.ctx.restore();
+            }
+            
+            animate() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.updateParticles();
+                this.particles.forEach(particle => this.drawParticle(particle));
+                
+                // Debug: draw a test rectangle to verify canvas is working
+                this.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+                this.ctx.fillRect(10, 10, 100, 100);
+                
+                // Debug: draw a test circle
+                this.ctx.beginPath();
+                this.ctx.arc(200, 200, 30, 0, Math.PI * 2);
+                this.ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                this.ctx.fill();
+                
+                // Debug: draw particles as simple circles
+                this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+                this.particles.forEach((particle, index) => {
+                    this.ctx.beginPath();
+                    this.ctx.arc(particle.x, particle.y, 10, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+                
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        // Initialize background particles immediately
+        let backgroundParticles;
+        
+        // Try to initialize immediately
+        try {
+            backgroundParticles = new BackgroundParticles();
+            console.log('Background particles initialized successfully');
+        } catch (error) {
+            console.log('Particles not ready, retrying...', error);
+            // Fallback: try again after a short delay
+            setTimeout(() => {
+                try {
+                    backgroundParticles = new BackgroundParticles();
+                    console.log('Background particles initialized on retry');
+                } catch (e) {
+                    console.error('Failed to initialize particles:', e);
+                }
+            }, 100);
+        }
+
+        // Simple Simplex/Perlin Noise Implementation
+        var NOISE = NOISE || { };
+        NOISE.Perlin = (function() {
+            var iOctaves = 1,
+                fPersistence = 0.2,
+                fResult, fFreq, fPers,
+                aOctFreq, // frequency per octave
+                aOctPers, // persistance per octave
+                fPersMax; // 1 / max persistence
+
+            var octaveFreq = function() {
+                var fFreq, fPers;
+                aOctFreq = new Array();
+                aOctPers = new Array();
+                fPersMax = 0;
+                for (var i=0; i < iOctaves; i++) {
+                    fFreq = Math.pow(2,i);
+                    fPers = Math.pow(fPersistence, i);
+                    fPersMax += fPers;
+                    aOctFreq.push(fFreq);
+                    aOctPers.push(fPers);
+                }
+                fPersMax = 2 / fPersMax;
+            }
+
+            var perm = new Uint8Array(512);
+            var p = new Uint8Array(256);
+            var grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                         [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                         [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+
+            // Return the dot product for 2d perlin noise
+            function dot2(g, x, y) {
+                return g[0]*x + g[1]*y;
+            }
+
+            // Return the dot product for 3d perlin noise
+            function dot3(g, x, y, z) {
+                return g[0]*x + g[1]*y + g[2]*z;
+            }
+
+            // Seeded random number generator
+            function seed(x) {
+                x = (x<<13) ^ x;
+                return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+            }
+
+            function init() {
+                for (var i = 0; i < 256; i++) {
+                    p[i] = Math.abs(~~(seed(i) * 256));
+                }
+                // To remove the need for index wrapping, double the permutation table length
+                for (var i=0; i < 512; i++) {
+                    perm[i] = p[i & 255];
+                }
+            }
+
+            /*
+            ** 2D Simplex Noise
+            */
+            function noise2D (x, y, z) {
+                // Find unit grid cell containing point
+                var X = Math.floor(x) & 255;
+                var Y = Math.floor(y) & 255;
+                // Get relative xyz coordinates of point within that cell
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+
+                var fade = function(t) {
+                    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+                };
+
+                var lerp = function(a, b, t) {
+                    return (1.0-t)*a + t*b;
+                }
+
+                var u = fade(x),
+                    v = fade(y);
+
+                // Calculate a set of four hashed gradient indices
+                var n00 = perm[X + perm[Y ]] % 12;
+                var n01 = perm[X + perm[Y+1]] % 12;
+                var n10 = perm[X+1 + perm[Y+1]] % 12;
+                var n11 = perm[X+1 + perm[Y+1]] % 12;
+
+                // Calculate noise contributions from each of the four corners
+                var gi00 = dot2(grad3[n00], x, y );
+                var gi01 = dot2(grad3[n01], x, y-1);
+                var gi10 = dot2(grad3[n10], x-1, y );
+                var gi11 = dot2(grad3[n11], x-1, y-1);
+
+                // Interpolate the results along axises
+                return lerp(
+                    lerp(gi00, gi10, u),
+                    lerp(gi01, gi11, u),
+                    v);
+            }
+
+            /*
+            ** 3D Simplex Noise
+            */
+            function noise3D (x, y, z) {
+                // Find unit grid cell containing point
+                var X = Math.floor(x) & 255;
+                var Y = Math.floor(y) & 255;
+                var Z = Math.floor(z) & 255;
+                // Get relative xyz coordinates of point within that cell
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+
+                var fade = function(t) {
+                    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+                };
+
+                var lerp = function(a, b, t) {
+                    return (1.0-t)*a + t*b;
+                }
+
+                var u = fade(x),
+                    v = fade(y),
+                    w = fade(z);
+
+                // Calculate a set of eight hashed gradient indices
+                var n000 = perm[X + perm[Y + perm[Z ]]] % 12;
+                var n001 = perm[X + perm[Y + perm[Z+1]]] % 12;
+                var n010 = perm[X + perm[Y+1+perm[Z ]]] % 12;
+                var n011 = perm[X + perm[Y+1+perm[Z+1]]] % 12;
+                var n100 = perm[X+1+perm[Y + perm[Z ]]] % 12;
+                var n101 = perm[X+1+perm[Y + perm[Z+1]]] % 12;
+                var n110 = perm[X+1+perm[Y+1+perm[Z ]]] % 12;
+                var n111 = perm[X+1+perm[Y+1+perm[Z+1]]] % 12;
+
+                // Calculate noise contributions from each of the eight corners
+                var gi000 = dot3(grad3[n000], x, y, z );
+                var gi001 = dot3(grad3[n001], x, y, z-1);
+                var gi010 = dot3(grad3[n010], x, y-1, z );
+                var gi011 = dot3(grad3[n011], x, y-1, z-1);
+                var gi100 = dot3(grad3[n100], x-1, y, z );
+                var gi101 = dot3(grad3[n101], x-1, y, z-1);
+                var gi110 = dot3(grad3[n110], x-1, y-1, z );
+                var gi111 = dot3(grad3[n111], x-1, y-1, z-1);
+
+                // Interpolate the results along axises
+                return lerp(
+                    lerp(
+                        lerp(gi000, gi100, u),
+                        lerp(gi001, gi101, u), w),
+                    lerp(
+                        lerp(gi010, gi110, u),
+                        lerp(gi011, gi111, u), w),
+                    v);
+            }
+
+            function PerlinNoise(){}
+            PerlinNoise.prototype = {
+                init : init,
+                noise : function(x, y, z) {
+                    fResult = 0;
+                    for (var i=0; i < iOctaves; i++) {
+                        fFreq = aOctFreq[i];
+                        fPers = aOctPers[i];
+                        switch(arguments.length) {
+                            case 3 : fResult += fPers * noise3D(fFreq*x, fFreq*y, fFreq*z);
+                                     break;
+                            case 2 : fResult += fPers * noise2D(fFreq*x, fFreq*y);
+                                     break;
+                            default : fResult += fPers * noise3D(fFreq*x, fFreq*y, fFreq*z);
+                                      break;
+                        }
+                    }
+                    return (fResult * fPersMax + 0.8) * 0.5
+                },
+                noiseDetail : function(octaves, persistance) {
+                    iOctaves = octaves || iOctaves;
+                    fPersistence = persistance || fPersistence;
+                    octaveFreq();
+                }
+            }
+
+            return PerlinNoise;
+        }).call(this);
+
+        let scene, camera, renderer, controls;
+        let planetGroup, moonOrbit;
+        let perlin;
+        let mouse, raycaster;
+        let wasHovered = false;
+        let planetMesh, outlineMesh, moonOutlineRef;
+        let satelliteOrbit, satelliteGroup, satelliteRoot, satelliteOutlineRef;
+        let animating = false;
+        let animationStartTime;
+        const animationDuration = 0.5; // seconds for one bounce
+        let hoverEnabled = false;
+
+        function onMouseMove(event) {
+            hoverEnabled = true;
+            mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+            mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0d1324); // Darker midnight blue to match page
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 3; // Zoomed out further for smaller appearance
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = false;
+            controls.enablePan = false;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            scene.add(ambientLight);
+
+            // Sunlight with shadows
+            const sunLight = new THREE.DirectionalLight(0xfff8e7, 1.0);
+            sunLight.position.set(10, 10, 54);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 50;
+            sunLight.shadow.camera.left = -10;
+            sunLight.shadow.camera.right = 10;
+            sunLight.shadow.camera.top = 10;
+            sunLight.shadow.camera.bottom = -10;
+            scene.add(sunLight);
+
+            // Mouse and raycaster setup
+            mouse = new THREE.Vector2();
+            raycaster = new THREE.Raycaster();
+            window.addEventListener( 'mousemove', onMouseMove, false );
+
+            // Initialize noise
+            perlin = new NOISE.Perlin();
+            perlin.init();
+            perlin.noiseDetail(4, 0.5); // More detailed noise for realistic continents
+
+            // --- Create the Planet ---
+            planetGroup = new THREE.Group();
+            scene.add(planetGroup);
+
+            const planetRadius = 0.5; // Smaller planet
+            const planetGeometry = new THREE.IcosahedronGeometry(planetRadius, 4); // Higher detail for better noise
+
+            // Displace vertices for terrain
+            const positionAttribute = planetGeometry.attributes.position;
+            for (let i = 0; i < positionAttribute.count; i++) {
+                const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
+                const normalized = vertex.clone().normalize();
+                const theta = Math.acos(normalized.y);
+                const phi = Math.atan2(normalized.x, normalized.z);
+                const noiseValue = perlin.noise(phi * 3, theta * 3); // Adjusted scale for continent size
+                let height = 0;
+                if (noiseValue > 0.4) { // Higher threshold for more water coverage
+                    height = (noiseValue - 0.4) / 0.6 * 0.2; // Bulge up to 20% for cartoony exaggeration
+                }
+                vertex.multiplyScalar(1 + height);
+                positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+            }
+            planetGeometry.computeVertexNormals();
+
+            // Add vertex colors for ocean/land
+            const colors = new Float32Array(positionAttribute.count * 3);
+            for (let i = 0; i < positionAttribute.count; i++) {
+                const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
+                const len = vertex.length();
+                const height = (len - planetRadius) / planetRadius;
+                let color;
+                if (height > 0) {
+                    color = new THREE.Color(0x6a8c45); // Darker green land
+                } else {
+                    color = new THREE.Color(0x2e5a7a); // Darker blue ocean
+                }
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+            planetGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const planetMaterial = new THREE.MeshToonMaterial({ vertexColors: true });
+            planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
+            planetMesh.castShadow = true;
+            planetMesh.receiveShadow = true;
+            planetGroup.add(planetMesh);
+
+            // Planet outline in peach color
+            const planetOutlineMaterial = new THREE.MeshBasicMaterial({ color: 0xffdab9, side: THREE.BackSide });
+            const outlineGeometry = planetGeometry.clone();
+            outlineMesh = new THREE.Mesh(outlineGeometry, planetOutlineMaterial);
+            outlineMesh.scale.setScalar(1.05); // Slightly larger for outline
+            planetGroup.add(outlineMesh);
+
+            // click-to-toggle UI and outline accent
+            renderer.domElement.addEventListener('click', onPlanetClick);
+
+            // Clouds for cartoony atmosphere
+            const cloudGeometry = new THREE.SphereGeometry(planetRadius * 1.01, 32, 16);
+            const cloudPositionAttribute = cloudGeometry.attributes.position;
+            for (let i = 0; i < cloudPositionAttribute.count; i++) {
+                const vertex = new THREE.Vector3().fromBufferAttribute(cloudPositionAttribute, i);
+                const normalized = vertex.clone().normalize();
+                const theta = Math.acos(normalized.y);
+                const phi = Math.atan2(normalized.x, normalized.z);
+                const noiseValue = perlin.noise(phi * 8, theta * 8); // Higher frequency for fluffy clouds
+                if (noiseValue > 0.6) {
+                    const height = (noiseValue - 0.6) / 0.4 * 0.03; // Small puffs
+                    vertex.multiplyScalar(1 + height);
+                    cloudPositionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+                }
+            }
+            cloudGeometry.computeVertexNormals();
+
+            const cloudMaterial = new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.3
+            });
+            const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            clouds.castShadow = true;
+            clouds.receiveShadow = true;
+            planetGroup.add(clouds);
+
+            // --- Create the Moon ---
+            moonOrbit = new THREE.Group();
+            scene.add(moonOrbit);
+
+            const moonGroup = new THREE.Group();
+            const moonRadius = 0.15; // Smaller moon to match scaled planet
+            const moonGeometry = new THREE.IcosahedronGeometry(moonRadius, 2); // Lower poly moon
+
+            const moonMaterial = new THREE.MeshToonMaterial({ color: 0xcccccc });
+            const moonMesh = new THREE.Mesh(moonGeometry, moonMaterial);
+            moonMesh.castShadow = true;
+            moonMesh.receiveShadow = true;
+            moonGroup.add(moonMesh);
+
+            // Moon outline in light pastel blue
+            const moonOutlineMaterial = new THREE.MeshBasicMaterial({ color: 0xadd8e6, side: THREE.BackSide });
+            const moonOutline = new THREE.Mesh(moonGeometry, moonOutlineMaterial);
+            moonOutline.scale.setScalar(1.1);
+            moonGroup.add(moonOutline);
+            moonOutlineRef = moonOutline;
+
+            // Add craters to the moon
+            function addCrater(parent, scale, position) {
+                const craterGeometry = new THREE.SphereGeometry(moonRadius * scale, 8, 8);
+                const craterMesh = new THREE.Mesh(craterGeometry, new THREE.MeshToonMaterial({ color: 0xaaaaaa }));
+                craterMesh.position.copy(position).multiplyScalar(moonRadius * 0.9); // Push slightly inwards
+                craterMesh.scale.set(1, 1, 0.2); // Flatten the sphere into a dish
+                parent.add(craterMesh);
+
+                const craterOutline = new THREE.Mesh(craterGeometry, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }));
+                craterOutline.scale.set(1.1, 1.1, 0.25); // Outline for the crater
+                craterOutline.position.copy(position).multiplyScalar(moonRadius * 0.9);
+                parent.add(craterOutline);
+            }
+
+            // Generate some random craters
+            for (let i = 0; i < 5; i++) {
+                const craterSize = THREE.MathUtils.randFloat(0.15, 0.3);
+                // Generate a random direction using spherical coordinates
+                const pos = new THREE.Vector3();
+                const phi = THREE.MathUtils.randFloat(0, Math.PI * 2); // Random angle around (0 to 360 degrees)
+                const theta = Math.acos(THREE.MathUtils.randFloat(-1, 1)); // Random angle from pole (0 to 180 degrees)
+                pos.setFromSphericalCoords(1, phi, theta); // Set vector from these angles
+
+                addCrater(moonGroup, craterSize, pos);
+            }
+
+            moonGroup.position.x = 1.0; // Smaller orbit for smaller planet
+            moonOrbit.add(moonGroup);
+
+            // --- Create the Satellite (opposite side of the moon) ---
+            satelliteOrbit = new THREE.Group();
+            scene.add(satelliteOrbit);
+
+            satelliteGroup = new THREE.Group();
+            satelliteGroup.position.x = -1.0; // opposite the moon along X
+            satelliteOrbit.add(satelliteGroup);
+
+            const loader = new GLTFLoader();
+            loader.load('./models/satellite.glb', (gltf) => {
+                satelliteRoot = gltf.scene;
+                // Normalize scale a bit for scene
+                const desiredSize = 0.95; // approximate height
+                const box = new THREE.Box3().setFromObject(satelliteRoot);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z) || 1;
+                const scale = desiredSize / maxDim;
+                satelliteRoot.scale.setScalar(scale);
+
+                // Enable shadows for satellite
+                satelliteRoot.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                // Create satellite outline by cloning and scaling the actual satellite geometry
+                const satelliteOutlineGeometry = satelliteRoot.clone();
+                const outlineMaterials = []; // Store materials for color changes
+                satelliteOutlineGeometry.traverse((child) => {
+                    if (child.isMesh) {
+                        const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0xffdab9, side: THREE.BackSide });
+                        child.material = outlineMaterial;
+                        outlineMaterials.push(outlineMaterial);
+                    }
+                });
+                satelliteOutlineGeometry.scale.set(0.22, 0.17, 0.19); // Squish in Z axis for flatter outline
+                // Apply the same initial rotation as the actual satellite
+                satelliteOutlineGeometry.rotation.y = -Math.PI / 2;
+                satelliteGroup.add(satelliteOutlineGeometry);
+                satelliteOutlineRef = { group: satelliteOutlineGeometry, materials: outlineMaterials };
+
+                // Ensure +X faces away from the planet as it orbits
+                // We'll rotate it so its local +X points from planet to satellite
+                satelliteRoot.rotation.y = -Math.PI / 2; // align model's +X to point outward when group looks at planet
+                satelliteGroup.add(satelliteRoot);
+            });
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function screenPositionOfObject(obj, camera) {
+            const vector = new THREE.Vector3();
+            obj.getWorldPosition(vector);
+            vector.project(camera);
+            const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-vector.y * 0.5 + 0.5) * window.innerHeight;
+            return { x, y, behind: vector.z > 1 };
+        }
+
+        let uiVisible = false;
+        function onPlanetClick(event) {
+            // Basic raycast to ensure planet was clicked
+            const mouseNDC = new THREE.Vector2(
+                ( event.clientX / window.innerWidth ) * 2 - 1,
+                - ( event.clientY / window.innerHeight ) * 2 + 1
+            );
+            raycaster.setFromCamera(mouseNDC, camera);
+            const hit = raycaster.intersectObject(planetMesh);
+            if (!hit.length) return;
+
+            uiVisible = !uiVisible;
+            const ui = document.getElementById('ui-layer');
+            ui.setAttribute('aria-hidden', String(!uiVisible));
+            ui.classList.toggle('show', uiVisible);
+            const accent = uiVisible ? 0xff4d2e : 0xffdab9;
+            outlineMesh.material.color.setHex(accent); // planet
+            if (moonOutlineRef) moonOutlineRef.material.color.setHex(accent); // moon
+
+            // prepare letter jitter spans once when showing
+            if (uiVisible) {
+                const labels = document.querySelectorAll('#ui-layer .letters');
+                labels.forEach(label => {
+                    // If already processed, skip
+                    if (label.dataset.split === '1') return;
+
+                    const text = label.textContent || '';
+                    label.textContent = '';
+                    [...text].forEach((ch, i) => {
+                        const span = document.createElement('span');
+                        span.textContent = ch;
+                        // random small offsets/rotation and stagger
+                        const jx = (Math.random() * 2 - 1) * 0.7; // -1.5..1.5px
+                        const jy = (Math.random() * 2 - 1) * 0.7;
+                        const jr = (Math.random() * 2 - 1) * 1;   // -2..2deg
+                        span.style.setProperty('--jx', jx + 'px');
+                        span.style.setProperty('--jy', jy + 'px');
+                        span.style.setProperty('--jr', jr + 'deg');
+                        span.style.animationDelay = (i * 0.01) + 's';
+                        label.appendChild(span);
+                    });
+                    label.dataset.split = '1';
+                });
+            }
+        }
+
+        function layoutBubbles() {
+            if (!uiVisible) return;
+            const ui = document.getElementById('ui-layer');
+            const tl = ui.querySelector('.top-left');
+            const tr = ui.querySelector('.top-right');
+            const bl = ui.querySelector('.bottom-left');
+            const br = ui.querySelector('.bottom-right');
+
+            // Planet screen position
+            const planetScreen = screenPositionOfObject(planetGroup, camera);
+
+            const gap = Math.min(window.innerWidth, window.innerHeight) * 0.19; // distance from planet
+
+            // Position around planet
+            tl.style.left = (planetScreen.x - gap) + 'px';
+            tl.style.top  = (planetScreen.y - gap) + 'px';
+
+            tr.style.left = (planetScreen.x + gap) + 'px';
+            tr.style.top  = (planetScreen.y - gap) + 'px';
+
+            bl.style.left = (planetScreen.x - gap) + 'px';
+            bl.style.top  = (planetScreen.y + gap) + 'px';
+
+            br.style.left = (planetScreen.x + gap) + 'px';
+            br.style.top  = (planetScreen.y + gap) + 'px';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Raycast for hover detection only if mouse has moved
+            let currentHovered = false;
+            if (hoverEnabled) {
+                raycaster.setFromCamera( mouse, camera );
+                const intersects = raycaster.intersectObject( planetMesh );
+                currentHovered = intersects.length > 0;
+            }
+
+            // Outline color: when UI is visible, force accent; otherwise use hover feedback
+            const outlineColor = uiVisible ? 0xff5f02 : (currentHovered ? 0x333333 : 0xffdab9);
+            outlineMesh.material.color.setHex(outlineColor);
+            if (moonOutlineRef) moonOutlineRef.material.color.setHex(outlineColor);
+            if (satelliteOutlineRef && satelliteOutlineRef.materials) {
+                satelliteOutlineRef.materials.forEach(material => material.color.setHex(outlineColor));
+            }
+
+            // Bounce animation: trigger once on hover enter (state change)
+            if (currentHovered && !wasHovered && !animating) {
+                animating = true;
+                animationStartTime = performance.now() * 0.001;
+            }
+
+            if (animating) {
+                const elapsed = performance.now() * 0.001 - animationStartTime;
+                if (elapsed < animationDuration) {
+                    const progress = elapsed / animationDuration;
+                    const bounceScale = 1 + 0.05 * Math.sin( Math.PI * progress ); // One full grow-shrink cycle
+                    planetGroup.scale.set( bounceScale, bounceScale, bounceScale );
+                } else {
+                    animating = false;
+                    planetGroup.scale.set( 1, 1, 1 );
+                }
+            }
+
+            // Reset scale if not hovered and not animating
+            if (!currentHovered && !animating) {
+                planetGroup.scale.set( 1, 1, 1 );
+            }
+
+            // Update previous state
+            wasHovered = currentHovered;
+
+            planetGroup.rotation.y += 0.005; // Slightly faster spin
+            planetGroup.rotation.x += 0.0008;
+
+            moonOrbit.rotation.y += 0.015; // Faster moon orbit
+            moonOrbit.children[0].rotation.y += 0.008; // Faster moon spin
+
+            // Satellite orbit (same speed magnitude, opposite direction)
+            if (satelliteOrbit) {
+                satelliteOrbit.rotation.y += 0.015;
+                if (satelliteGroup) {
+                    // keep satellite oriented so its +X points away from planet
+                    // by making the group's forward look at the planet, then rotate child so +X faces out
+                    satelliteGroup.lookAt(planetGroup.position);
+                    if (satelliteRoot) {
+                        satelliteRoot.rotation.y = -Math.PI / 2; // maintain outward +X relative to group's lookAt
+                    }
+                }
+            }
+
+            layoutBubbles();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+        animate();
+    </script>
+
+</body>
+
+</html>
