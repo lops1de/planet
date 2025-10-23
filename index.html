@@ -827,6 +827,18 @@
             }, { passive: true });
 
             window.addEventListener('resize', onWindowResize, false);
+
+            // Apply jitter to page title characters
+            const titleChars = document.querySelectorAll('#page-title span');
+            titleChars.forEach((char, i) => {
+                const jx = (Math.random() * 4 - 1) * 2; // -3..3px
+                const jy = (Math.random() * 4 - 1) * 2;
+                const jr = (Math.random() * 4 - 1) * 2; // -2..2deg
+                char.style.setProperty('--jx', jx + 'px');
+                char.style.setProperty('--jy', jy + 'px');
+                char.style.setProperty('--jr', jr + 'deg');
+                char.style.animationDelay = (i * 0.2) + 's';
+            });
         }
 
         function onWindowResize() {
