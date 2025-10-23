@@ -66,26 +66,6 @@
             display: block;
         }
 
-        /* Fallback post FX for iOS using backdrop-filter + blending (covers WebGL) */
-        #postfx, #postfx-mul {
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-        }
-        /* Greyscale + red screen overlay */
-        #postfx {
-            z-index: 5;
-            background: rgba(255, 15, 0, 0.85);
-            mix-blend-mode: screen;
-            -webkit-backdrop-filter: saturate(0) contrast(1.8) brightness(1.1);
-            backdrop-filter: saturate(0) contrast(1.8) brightness(1.1);
-        }
-        /* Multiply darkening to push toward red/black */
-        #postfx-mul {
-            z-index: 4;
-            background: rgba(0, 0, 0, 0.25);
-            mix-blend-mode: multiply;
-        }
 
 
         /* Persona/Katamari inspired UI layer */
@@ -303,10 +283,6 @@
             <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
             <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
         </div>
-
-        <!-- CSS fallback post FX layers for iOS browsers that ignore SVG filter on containers -->
-        <div id="postfx"></div>
-        <div id="postfx-mul"></div>
     </div>
 
     <script type="importmap">
