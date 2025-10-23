@@ -12,8 +12,6 @@
             background-color: #0d1324;
             /* Darker midnight blue */
             font-family: 'Inter', sans-serif;
-            /* Apply global red-only gradient-map + glow */
-            filter: url(#redMapGlow);
         }
 
         canvas {
@@ -35,6 +33,20 @@
             height: 100%;
             display: block;
             background: rgba(13, 19, 36, 0.1);
+        }
+
+        /* App root that receives post-processing filter on all content */
+        #app-root {
+            position: fixed;
+            inset: 0;
+            filter: url(#redMapGlow);
+        }
+
+        /* Hosting container for the WebGL canvas to make mobile layering explicit */
+        #scene-root {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
         }
 
 
@@ -226,10 +238,15 @@
 
 
 
-    <!-- Background particle layer -->
-    <div id="background-layer">
-        <canvas id="background-canvas"></canvas>
-    </div>
+    <!-- Wrap all on-screen content for unified mobile-friendly post FX -->
+    <div id="app-root">
+        <!-- Background particle layer -->
+        <div id="background-layer">
+            <canvas id="background-canvas"></canvas>
+        </div>
+
+        <!-- Scene root ensures canvas stacking is explicit on mobile -->
+        <div id="scene-root"></div>
 
     <!-- Persona/Katamari inspired UI container -->
     <div id="ui-layer" aria-hidden="true">
@@ -237,6 +254,7 @@
         <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">LET'S GO!</span><span class="tail"></span></button>
         <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
         <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
+    </div>
     </div>
 
     <script type="importmap">
@@ -615,11 +633,13 @@
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 3; // Zoomed out further for smaller appearance
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Attach WebGL canvas inside #scene-root for reliable mobile z-ordering
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight, false);
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            document.body.appendChild(renderer.domElement);
+            document.getElementById('scene-root').appendChild(renderer.domElement);
 
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
@@ -647,7 +667,22 @@
             // Mouse and raycaster setup
             mouse = new THREE.Vector2();
             raycaster = new THREE.Raycaster();
+            // Desktop hover
             window.addEventListener( 'mousemove', onMouseMove, false );
+            // Mobile touch: map first touch point to mouse for hit testing
+            window.addEventListener('touchstart', (e) => {
+                if (!e.touches || e.touches.length === 0) return;
+                const t = e.touches[0];
+                mouse.x = ( t.clientX / window.innerWidth ) * 2 - 1;
+                mouse.y = - ( t.clientY / window.innerHeight ) * 2 + 1;
+                hoverEnabled = true;
+            }, { passive: true });
+            window.addEventListener('touchmove', (e) => {
+                if (!e.touches || e.touches.length === 0) return;
+                const t = e.touches[0];
+                mouse.x = ( t.clientX / window.innerWidth ) * 2 - 1;
+                mouse.y = - ( t.clientY / window.innerHeight ) * 2 + 1;
+            }, { passive: true });
 
             // Initialize noise
             perlin = new NOISE.Perlin();
@@ -845,7 +880,7 @@
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setSize(window.innerWidth, window.innerHeight, false);
         }
 
         function screenPositionOfObject(obj, camera) {
@@ -860,9 +895,17 @@
         let uiVisible = false;
         function onPlanetClick(event) {
             // Basic raycast to ensure planet was clicked
+            let cx, cy;
+            if (event.touches && event.touches.length) {
+                cx = event.touches[0].clientX;
+                cy = event.touches[0].clientY;
+            } else {
+                cx = event.clientX;
+                cy = event.clientY;
+            }
             const mouseNDC = new THREE.Vector2(
-                ( event.clientX / window.innerWidth ) * 2 - 1,
-                - ( event.clientY / window.innerHeight ) * 2 + 1
+                ( cx / window.innerWidth ) * 2 - 1,
+                - ( cy / window.innerHeight ) * 2 + 1
             );
             raycaster.setFromCamera(mouseNDC, camera);
             const hit = raycaster.intersectObject(planetMesh);
@@ -903,6 +946,14 @@
             }
         }
 
+        // Support tap on entire canvas for mobile
+        document.addEventListener('touchend', (e) => {
+            // Avoid calling when dragging the scene: only quick taps
+            if (e.changedTouches && e.changedTouches.length === 1) {
+                onPlanetClick(e);
+            }
+        }, { passive: true });
+
         function layoutBubbles() {
             if (!uiVisible) return;
             const ui = document.getElementById('ui-layer');
@@ -914,7 +965,7 @@
             // Planet screen position
             const planetScreen = screenPositionOfObject(planetGroup, camera);
 
-            const gap = Math.min(window.innerWidth, window.innerHeight) * 0.19; // distance from planet
+            const gap = Math.min(window.innerWidth, window.innerHeight) * (window.innerWidth < 540 ? 0.28 : 0.19); // further on phones
 
             // Position around planet
             tl.style.left = (planetScreen.x - gap) + 'px';
