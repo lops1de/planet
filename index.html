@@ -82,6 +82,13 @@
             position: absolute;
             inset: 0;
             z-index: 0;
+            /* Transparent background so body black shows through unfiltered */
+            background: transparent;
+        }
+        
+        /* Make the WebGL canvas transparent so black background shows through */
+        #scene-root canvas {
+            background: transparent !important;
         }
 
         /* Ensure canvas always scales to viewport on mobile */
@@ -572,7 +579,7 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0d1324); // Darker midnight blue to match page
+            scene.background = null; // Transparent - let the black body background show through unfiltered
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 3; // Zoomed out further for smaller appearance
@@ -581,6 +588,7 @@
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0); // Transparent clear color
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.getElementById('scene-root').appendChild(renderer.domElement);
