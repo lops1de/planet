@@ -44,11 +44,12 @@
         #app-root {
             position: fixed;
             inset: 0;
-            /* Safari/iOS prefers vendor-prefixed filters on containers */
+        }
+        
+        /* Apply filter directly to scene and UI for better mobile compatibility */
+        #scene-root, #ui-layer {
             -webkit-filter: url(#redMapGlow);
             filter: url(#redMapGlow);
-            will-change: filter;
-            transform: translateZ(0);
         }
 
         /* Hosting container for the WebGL canvas to make mobile layering explicit */
@@ -240,34 +241,42 @@
     <!-- Global SVG filter: maps luminance to red/black and adds neon glow -->
     <svg width="0" height="0" style="position:fixed; inset:0; pointer-events:none; opacity:0; z-index:-1">
         <defs>
-        <filter id="redMapGlow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+        <filter id="redMapGlow" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
             <!-- Convert to luminance -->
             <feColorMatrix type="matrix" values="
-                0.2126 0.7152 0.0722 0 0
-                0.2126 0.7152 0.0722 0 0
-                0.2126 0.7152 0.0722 0 0
-                0      0      0      1 0" result="lum"/>
+                0.299 0.587 0.114 0 0
+                0.299 0.587 0.114 0 0
+                0.299 0.587 0.114 0 0
+                0     0     0     1 0" result="lum"/>
 
-            <!-- Hard map: near-white -> strong red, darker -> black -->
-            <feComponentTransfer in="lum" result="map">
-                <feFuncR type="table" tableValues="0 1"/>
-                <feFuncG type="discrete" tableValues="0 0"/>
-                <feFuncB type="discrete" tableValues="0 0"/>
-                <feFuncA type="table" tableValues="0 1"/>
+            <!-- Increase contrast before mapping -->
+            <feComponentTransfer in="lum" result="contrast">
+                <feFuncR type="linear" slope="2.2" intercept="-0.6"/>
+                <feFuncG type="linear" slope="2.2" intercept="-0.6"/>
+                <feFuncB type="linear" slope="2.2" intercept="-0.6"/>
             </feComponentTransfer>
 
-            <!-- Soft bloom/glow: blur the red and add back -->
-            <feGaussianBlur in="map" stdDeviation="2" result="blur1"/>
-            <feGaussianBlur in="map" stdDeviation="6" result="blur2"/>
+            <!-- Map luminance to red/black gradient -->
+            <feComponentTransfer in="contrast" result="redmap">
+                <feFuncR type="gamma" amplitude="1.5" exponent="0.8" offset="0"/>
+                <feFuncG type="discrete" tableValues="0 0"/>
+                <feFuncB type="discrete" tableValues="0 0"/>
+            </feComponentTransfer>
+
+            <!-- Create glow effect -->
+            <feGaussianBlur in="redmap" stdDeviation="3" result="blur1"/>
+            <feGaussianBlur in="redmap" stdDeviation="8" result="blur2"/>
+            
+            <!-- Merge glows and sharp image -->
             <feMerge result="glow">
-                <feMergeNode in="blur1"/>
                 <feMergeNode in="blur2"/>
-                <feMergeNode in="map"/>
+                <feMergeNode in="blur1"/>
+                <feMergeNode in="redmap"/>
             </feMerge>
 
-            <!-- Boost red intensity slightly -->
+            <!-- Final intensity boost -->
             <feColorMatrix in="glow" type="matrix" values="
-                1.8 0   0   0 0
+                2.0 0   0   0 0
                 0   0   0   0 0
                 0   0   0   0 0
                 0   0   0   1 0"/>
