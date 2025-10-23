@@ -65,6 +65,27 @@
             display: block;
         }
 
+        /* Fallback post FX for iOS using backdrop-filter + blending (covers WebGL) */
+        #postfx, #postfx-mul {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+        /* Greyscale + red screen overlay */
+        #postfx {
+            z-index: 5;
+            background: rgba(255, 40, 0, 0.22);
+            mix-blend-mode: screen;
+            -webkit-backdrop-filter: grayscale(1) contrast(1.35) brightness(0.9);
+            backdrop-filter: grayscale(1) contrast(1.35) brightness(0.9);
+        }
+        /* Multiply darkening to push toward red/black */
+        #postfx-mul {
+            z-index: 4;
+            background: rgba(0,0,0,0.35);
+            mix-blend-mode: multiply;
+        }
+
 
         /* Persona/Katamari inspired UI layer */
         #ui-layer {
@@ -256,23 +277,27 @@
 
 
 
+    <!-- Background particle layer (outside app-root so it's not affected by post-processing) -->
+    <div id="background-layer">
+        <canvas id="background-canvas"></canvas>
+    </div>
+
     <!-- Wrap all on-screen content for unified mobile-friendly post FX -->
     <div id="app-root">
-        <!-- Background particle layer -->
-        <div id="background-layer">
-            <canvas id="background-canvas"></canvas>
-        </div>
-
         <!-- Scene root ensures canvas stacking is explicit on mobile -->
         <div id="scene-root"></div>
 
-    <!-- Persona/Katamari inspired UI container -->
-    <div id="ui-layer" aria-hidden="true">
-        <button class="speech-bubble top-left" data-quadrant="tl"><span class="letters">YEAH!</span><span class="tail"></span></button>
-        <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">LET'S GO!</span><span class="tail"></span></button>
-        <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
-        <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
-    </div>
+        <!-- Persona/Katamari inspired UI container -->
+        <div id="ui-layer" aria-hidden="true">
+            <button class="speech-bubble top-left" data-quadrant="tl"><span class="letters">YEAH!</span><span class="tail"></span></button>
+            <button class="speech-bubble top-right" data-quadrant="tr"><span class="letters">LET'S GO!</span><span class="tail"></span></button>
+            <button class="speech-bubble bottom-left" data-quadrant="bl"><span class="letters">BOOM!</span><span class="tail"></span></button>
+            <button class="speech-bubble bottom-right" data-quadrant="br"><span class="letters">ROLL OUT!</span><span class="tail"></span></button>
+        </div>
+
+        <!-- CSS fallback post FX layers for iOS browsers that ignore SVG filter on containers -->
+        <div id="postfx"></div>
+        <div id="postfx-mul"></div>
     </div>
 
     <script type="importmap">
@@ -765,9 +790,6 @@
             outlineMesh.scale.setScalar(1.05); // Slightly larger for outline
             planetGroup.add(outlineMesh);
 
-            // click-to-toggle UI and outline accent
-            renderer.domElement.addEventListener('click', onPlanetClick);
-
             // Clouds for cartoony atmosphere
             const cloudGeometry = new THREE.SphereGeometry(planetRadius * 1.01, 32, 16);
             const cloudPositionAttribute = cloudGeometry.attributes.position;
@@ -895,6 +917,14 @@
                 satelliteGroup.add(satelliteRoot);
             });
 
+            // Mobile touch and click event handlers - attach after canvas is in DOM
+            renderer.domElement.addEventListener('click', onPlanetClick, { passive: true });
+            renderer.domElement.addEventListener('touchend', (e) => {
+                if (e.changedTouches && e.changedTouches.length === 1) {
+                    onPlanetClick(e);
+                }
+            }, { passive: true });
+
             window.addEventListener('resize', onWindowResize, false);
         }
 
@@ -917,7 +947,11 @@
         function onPlanetClick(event) {
             // Basic raycast to ensure planet was clicked
             let cx, cy;
-            if (event.touches && event.touches.length) {
+            // For touch events, use changedTouches instead of touches for touchend
+            if (event.changedTouches && event.changedTouches.length) {
+                cx = event.changedTouches[0].clientX;
+                cy = event.changedTouches[0].clientY;
+            } else if (event.touches && event.touches.length) {
                 cx = event.touches[0].clientX;
                 cy = event.touches[0].clientY;
             } else {
@@ -967,12 +1001,6 @@
             }
         }
 
-        // Support tap on entire canvas for mobile
-        // Register both canvas click and touchend directly on the WebGL canvas
-        renderer?.domElement?.addEventListener('click', onPlanetClick, { passive: true });
-        renderer?.domElement?.addEventListener('touchend', (e) => {
-            if (e.changedTouches && e.changedTouches.length === 1) onPlanetClick(e);
-        }, { passive: true });
 
         function layoutBubbles() {
             if (!uiVisible) return;
