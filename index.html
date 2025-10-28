@@ -640,6 +640,13 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+        // ═══════════════════════════════════════════════════════════════
+        // CONFIGURATION: Stream URL
+        // ═══════════════════════════════════════════════════════════════
+        // ✅ HTTPS stream URL - works with GitHub Pages!
+        const STREAM_URL = 'https://stream.dmpstr.me/radio.mp3';
+        // ═══════════════════════════════════════════════════════════════
+
         // Mobile detection
         function detectMobile() {
             const userAgent = navigator.userAgent || navigator.vendor || window.opera;
@@ -673,6 +680,24 @@
                 document.body.classList.remove('mobile');
             }
         });
+        
+        // Check for mixed content issues (HTTPS page loading HTTP audio)
+        function checkMixedContent(streamUrl) {
+            const pageProtocol = window.location.protocol;
+            const streamProtocol = streamUrl.startsWith('http://') ? 'http:' : 
+                                  streamUrl.startsWith('https://') ? 'https:' : 
+                                  'unknown';
+            
+            if (pageProtocol === 'https:' && streamProtocol === 'http:') {
+                console.error('⚠️ MIXED CONTENT ERROR DETECTED! ⚠️');
+                console.error('Page is HTTPS but stream is HTTP - browser will block this!');
+                console.error('Page:', window.location.href);
+                console.error('Stream:', streamUrl);
+                console.error('SOLUTION: Use HTTPS stream URL or serve page over HTTP');
+                return true;
+            }
+            return false;
+        }
 
         // Background particles removed
 
@@ -1837,13 +1862,35 @@
 
             const pathLoop = './loop/nighttime_loop.mp3';
             const pathStatic = './loop/static.mp3';
-            const baseStreamUrl = 'http://18.119.96.195:8000/radio.mp3';
+            const baseStreamUrl = STREAM_URL; // Use the configured URL from the top of the script
+            
+            // Check for mixed content on page load
+            const hasMixedContentIssue = checkMixedContent(baseStreamUrl);
+            if (hasMixedContentIssue) {
+                console.error('════════════════════════════════════════════════════════');
+                console.error('🚨 AUDIO WILL NOT WORK - MIXED CONTENT BLOCKED 🚨');
+                console.error('Your page is HTTPS but the radio stream is HTTP');
+                console.error('Browsers block HTTP content on HTTPS pages for security');
+                console.error('════════════════════════════════════════════════════════');
+                console.error('SOLUTIONS (see STREAM_URL configuration at top of script):');
+                console.error('1. Change STREAM_URL to use HTTPS if your server supports it');
+                console.error('2. Use a CORS proxy: https://corsproxy.io/?http://your-stream-url');
+                console.error('3. Set up a reverse proxy with HTTPS (e.g., Cloudflare, nginx)');
+                console.error('4. Add HTTPS support to your Icecast/streaming server');
+                console.error('════════════════════════════════════════════════════════');
+                console.error('Current URL:', baseStreamUrl);
+                console.error('Page protocol:', window.location.protocol);
+                console.error('════════════════════════════════════════════════════════');
+            }
             
             // Helper function to get fresh stream URL with cache-busting
             const getFreshStreamUrl = () => {
                 try {
                     const url = `${baseStreamUrl}?t=${Date.now()}&nocache=${Math.random()}`;
                     console.log('getFreshStreamUrl generated:', url);
+                    if (hasMixedContentIssue) {
+                        console.warn('⚠️ This URL will be BLOCKED by the browser (mixed content)');
+                    }
                     return url;
                 } catch (err) {
                     console.error('Error in getFreshStreamUrl:', err);
@@ -1938,12 +1985,30 @@
             // Handle stream errors with detailed iOS Safari logging
             audioStream.addEventListener('error', (e) => {
                 console.error('Stream error event:', e);
+                
+                // Check for mixed content blocking
+                if (hasMixedContentIssue) {
+                    console.error('🚨 ERROR LIKELY CAUSED BY MIXED CONTENT BLOCKING! 🚨');
+                    console.error('The browser is blocking HTTP audio on your HTTPS page');
+                    console.error('See the solutions logged above');
+                }
+                
                 if (audioStream.error) {
                     console.error('Stream error code:', audioStream.error.code);
                     console.error('Stream error message:', audioStream.error.message);
                     // Error codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-                    if (audioStream.error.code === 2) {
+                    if (audioStream.error.code === 1) {
+                        console.error('ABORTED ERROR - Likely mixed content or CORS issue');
+                        if (hasMixedContentIssue) {
+                            console.error('This is definitely a mixed content problem!');
+                            return; // Don't try to recover, it won't work
+                        }
+                    } else if (audioStream.error.code === 2) {
                         console.error('NETWORK ERROR - Check CORS, connectivity, or server');
+                        if (hasMixedContentIssue) {
+                            console.error('Mixed content blocking detected!');
+                            return; // Don't try to recover
+                        }
                     } else if (audioStream.error.code === 4) {
                         console.error('SRC_NOT_SUPPORTED - Check MIME type or format');
                     }
@@ -1951,6 +2016,12 @@
                 
                 if (deviceInfo.isIOSSafari) {
                     console.log('iOS Safari: Stream error detected, attempting recovery...');
+                }
+                
+                // Don't attempt recovery if we have mixed content issues
+                if (hasMixedContentIssue) {
+                    console.error('Skipping recovery - mixed content cannot be fixed client-side');
+                    return;
                 }
                 
                 // Attempt to recover after a short delay with fresh URL
@@ -2161,9 +2232,7 @@
                         streamSource = setupAudioVisualization(audioStream, 'radio stream');
                         
                         // Set URL and start loading immediately
-                        const timestamp = Date.now();
-                        const random = Math.random();
-                        audioStream.src = `http://18.119.96.195:8000/radio.mp3?t=${timestamp}&nocache=${random}`;
+                        audioStream.src = getFreshStreamUrl();
                         console.log('Early stream preload: URL set, loading stream...');
                         audioStream.load();
                         
@@ -2215,9 +2284,7 @@
                         streamSource = setupAudioVisualization(audioStream, 'radio stream');
                         
                         // Set URL and start loading immediately
-                        const timestamp = Date.now();
-                        const random = Math.random();
-                        audioStream.src = `http://18.119.96.195:8000/radio.mp3?t=${timestamp}&nocache=${random}`;
+                        audioStream.src = getFreshStreamUrl();
                         console.log('Early stream preload (autoplay): URL set, loading stream...');
                         audioStream.load();
                         
