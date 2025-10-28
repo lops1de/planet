@@ -152,6 +152,72 @@
                 transform: translate(calc(var(--jx, 0) * -0.5), calc(var(--jy, 0) * -0.5)) rotate(calc(var(--jr, 0) * -0.5));
             }
         }
+        
+        /* Autoplay prompt overlay */
+        #autoplay-prompt {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        #autoplay-prompt.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        #autoplay-prompt .prompt-content {
+            background: #1a1a1a;
+            border: 3px solid #ffffff;
+            padding: 40px 50px;
+            text-align: center;
+            max-width: 500px;
+            color: #ffffff;
+            font-family: monospace;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.2);
+        }
+        
+        #autoplay-prompt h2 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        
+        #autoplay-prompt p {
+            margin: 0 0 30px 0;
+            font-size: 14px;
+            line-height: 1.6;
+            opacity: 0.8;
+        }
+        
+        #autoplay-prompt button {
+            background: #ffffff;
+            color: #000000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            font-family: monospace;
+            transition: all 0.2s ease;
+        }
+        
+        #autoplay-prompt button:hover {
+            background: #ff5f02;
+            color: #ffffff;
+            transform: scale(1.05);
+        }
 
         /* Persona/Katamari inspired UI layer */
         #ui-layer {
@@ -394,6 +460,40 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // Mobile detection
+        function detectMobile() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            const isMobileScreen = window.innerWidth <= 768 || window.innerHeight <= 768;
+            const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+            const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+            
+            return {
+                isMobile: isMobileUA || isMobileScreen,
+                isIOS: isIOS,
+                isSafari: isSafari,
+                isIOSSafari: isIOS && isSafari
+            };
+        }
+        
+        const deviceInfo = detectMobile();
+        
+        // Apply mobile class to body
+        if (deviceInfo.isMobile) {
+            document.body.classList.add('mobile');
+            console.log('Mobile device detected:', deviceInfo);
+        }
+        
+        // Recheck on resize
+        window.addEventListener('resize', () => {
+            const newCheck = detectMobile();
+            if (newCheck.isMobile && !document.body.classList.contains('mobile')) {
+                document.body.classList.add('mobile');
+            } else if (!newCheck.isMobile && document.body.classList.contains('mobile')) {
+                document.body.classList.remove('mobile');
+            }
+        });
 
         // Background particles removed
 
@@ -867,6 +967,509 @@
                 char.style.setProperty('--jy', jy + 'px');
                 char.style.setProperty('--jr', jr + 'deg');
                 char.style.animationDelay = (i * 0.2) + 's';
+            });
+
+            // --- Audio: staged playback ---
+            // DON'T add postfx-on at start - we want normal colors first
+
+            const pathLoop = './loop/nighttime_loop.mp3';
+            const pathStatic = './loop/static.mp3';
+            const baseStreamUrl = 'http://18.119.96.195:8000/radio.mp3';
+            
+            // Helper function to get fresh stream URL with cache-busting
+            const getFreshStreamUrl = () => {
+                try {
+                    const url = `${baseStreamUrl}?t=${Date.now()}&nocache=${Math.random()}`;
+                    console.log('getFreshStreamUrl generated:', url);
+                    return url;
+                } catch (err) {
+                    console.error('Error in getFreshStreamUrl:', err);
+                    return baseStreamUrl; // Fallback to base URL
+                }
+            };
+
+            audioLoop = new Audio(pathLoop);
+            audioLoop.loop = true;
+            audioLoop.volume = 0.03; // 25%
+            audioLoop.crossOrigin = 'anonymous'; // Enable for Web Audio API
+            audioLoop.preload = 'auto'; // iOS needs explicit preload
+
+            audioStatic = new Audio(pathStatic);
+            audioStatic.loop = false;
+            audioStatic.volume = 1.0;
+            audioStatic.preload = 'auto';
+
+            audioStream = new Audio();
+            
+            // iOS Safari audio configuration
+            if (deviceInfo.isIOSSafari) {
+                console.log('iOS Safari detected - applying audio fixes');
+                audioStream.preload = 'metadata'; // iOS prefers metadata over auto for streams
+                // Enable playsinline for iOS
+                audioStream.setAttribute('playsinline', '');
+                audioStream.setAttribute('webkit-playsinline', '');
+                audioLoop.setAttribute('playsinline', '');
+                audioLoop.setAttribute('webkit-playsinline', '');
+                audioStatic.setAttribute('playsinline', '');
+                audioStatic.setAttribute('webkit-playsinline', '');
+                
+                // iOS Safari needs explicit src set early for some MIME detection
+                audioStream.src = ''; // Empty src first
+                
+                // Check MIME type support
+                const mp3Support = audioStream.canPlayType('audio/mpeg');
+                const mp3Support2 = audioStream.canPlayType('audio/mp3');
+                console.log('iOS Safari audio/mpeg support:', mp3Support);
+                console.log('iOS Safari audio/mp3 support:', mp3Support2);
+                
+                // Don't set crossOrigin for iOS Safari - it can cause playback issues
+                console.log('iOS Safari: NOT setting crossOrigin to avoid CORS issues');
+            } else {
+                audioStream.crossOrigin = 'anonymous';
+                audioStream.preload = 'none'; // Don't buffer ahead for live streams on other platforms
+            }
+            
+            // Don't set initial URL - will be set when actually needed
+            console.log('Audio stream element created, will set URL on first use');
+            
+            // Stream health monitoring and recovery
+            let streamStallTimer = null;
+            let lastPlayPosition = 0;
+            let streamCheckInterval = null;
+            let streamRefreshInterval = null;
+            let streamStartTime = Date.now();
+            
+            // Monitor stream health every 2 seconds
+            const monitorStream = () => {
+                if (!audioStream || audioStream.paused) return;
+                
+                const currentTime = audioStream.currentTime;
+                
+                // If position hasn't changed and we're supposed to be playing, we're stalled
+                if (currentTime === lastPlayPosition && !audioStream.paused) {
+                    console.warn('Stream stalled, attempting recovery with fresh URL...');
+                    audioStream.src = getFreshStreamUrl(); // Get fresh stream URL
+                    audioStream.load(); // Reload stream
+                    audioStream.play().catch(() => {});
+                }
+                
+                lastPlayPosition = currentTime;
+            };
+            
+            // Refresh stream connection every 5 minutes to ensure we're on the live edge
+            const refreshStreamConnection = () => {
+                if (!audioStream || audioStream.paused) return;
+                
+                const elapsed = (Date.now() - streamStartTime) / 1000;
+                if (elapsed > 300) { // 5 minutes
+                    console.log('Refreshing stream connection to stay on live edge...');
+                    const currentVolume = audioStream.volume;
+                    audioStream.src = getFreshStreamUrl();
+                    audioStream.load();
+                    audioStream.volume = currentVolume;
+                    audioStream.play().catch(() => {});
+                    streamStartTime = Date.now();
+                }
+            };
+            
+            // Handle stream errors with detailed iOS Safari logging
+            audioStream.addEventListener('error', (e) => {
+                console.error('Stream error event:', e);
+                if (audioStream.error) {
+                    console.error('Stream error code:', audioStream.error.code);
+                    console.error('Stream error message:', audioStream.error.message);
+                    // Error codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                    if (audioStream.error.code === 2) {
+                        console.error('NETWORK ERROR - Check CORS, connectivity, or server');
+                    } else if (audioStream.error.code === 4) {
+                        console.error('SRC_NOT_SUPPORTED - Check MIME type or format');
+                    }
+                }
+                
+                if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: Stream error detected, attempting recovery...');
+                }
+                
+                // Attempt to recover after a short delay with fresh URL
+                setTimeout(() => {
+                    if (audioStream && !audioStream.paused) {
+                        console.log('Recovering stream with fresh URL...');
+                        audioStream.src = getFreshStreamUrl();
+                        audioStream.load();
+                        audioStream.play().catch(() => {});
+                    }
+                }, 1000);
+            });
+            
+            // Handle stalling/waiting
+            audioStream.addEventListener('waiting', () => {
+                console.warn('Stream buffering...');
+                // If buffering takes too long, reload with fresh URL
+                streamStallTimer = setTimeout(() => {
+                    console.warn('Buffer stall timeout, reloading stream with fresh URL...');
+                    audioStream.src = getFreshStreamUrl();
+                    audioStream.load();
+                    audioStream.play().catch(() => {});
+                }, 5000); // 5 second timeout
+            });
+            
+            audioStream.addEventListener('playing', () => {
+                // Clear stall timer when playing resumes
+                if (streamStallTimer) {
+                    clearTimeout(streamStallTimer);
+                    streamStallTimer = null;
+                }
+                // Start monitoring
+                if (!streamCheckInterval) {
+                    streamCheckInterval = setInterval(monitorStream, 2000);
+                }
+                // Start periodic refresh to stay on live edge
+                if (!streamRefreshInterval) {
+                    streamRefreshInterval = setInterval(refreshStreamConnection, 30000); // Check every 30 seconds
+                }
+                // Reset stream start time
+                streamStartTime = Date.now();
+            });
+            
+            audioStream.addEventListener('pause', () => {
+                // Stop monitoring when paused
+                if (streamCheckInterval) {
+                    clearInterval(streamCheckInterval);
+                    streamCheckInterval = null;
+                }
+                // Stop periodic refresh
+                if (streamRefreshInterval) {
+                    clearInterval(streamRefreshInterval);
+                    streamRefreshInterval = null;
+                }
+            });
+            
+            // Log when stream starts loading (helps debug caching issues)
+            audioStream.addEventListener('loadstart', () => {
+                console.log('Stream loading started:', audioStream.src);
+                console.log('Stream connected to analyser:', !!streamSource);
+                if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: loadstart event fired');
+                }
+            });
+            
+            // Log successful metadata load
+            audioStream.addEventListener('loadedmetadata', () => {
+                console.log('Stream metadata loaded successfully');
+                if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: Metadata loaded - stream format recognized');
+                    console.log('iOS Safari: Duration:', audioStream.duration);
+                }
+            });
+            
+            // Track when stream has data available
+            audioStream.addEventListener('canplay', () => {
+                console.log('Stream can play - data available');
+                if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: canplay event - ready to play');
+                }
+            });
+            
+            // Track when stream actually starts playing
+            audioStream.addEventListener('play', () => {
+                console.log('Stream play event - stream is playing');
+                if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: play event fired successfully');
+                }
+                // Check audio setup after stream starts
+                setTimeout(() => {
+                    checkAudioSetup();
+                }, 1000);
+            });
+            
+            // Additional iOS debugging events
+            if (deviceInfo.isIOSSafari) {
+                audioStream.addEventListener('loadeddata', () => {
+                    console.log('iOS Safari: loadeddata - first frame loaded');
+                });
+                
+                audioStream.addEventListener('canplaythrough', () => {
+                    console.log('iOS Safari: canplaythrough - can play without buffering');
+                });
+                
+                audioStream.addEventListener('progress', () => {
+                    console.log('iOS Safari: progress - downloading...');
+                });
+                
+                audioStream.addEventListener('suspend', () => {
+                    console.log('iOS Safari: suspend - download suspended');
+                });
+                
+                audioStream.addEventListener('stalled', () => {
+                    console.log('iOS Safari: stalled - download stalled');
+                });
+                
+                audioStream.addEventListener('abort', () => {
+                    console.log('iOS Safari: abort - download aborted');
+                });
+                
+                audioStream.addEventListener('emptied', () => {
+                    console.log('iOS Safari: emptied - media element reset');
+                });
+            }
+            
+            // Expose debug function to window for manual testing
+            window.checkAudioSetup = checkAudioSetup;
+            
+            // iOS Safari: Comprehensive diagnostic function
+            if (deviceInfo.isIOSSafari) {
+                window.diagnoseIOSAudio = () => {
+                    console.log('=== iOS Safari Audio Diagnostics ===');
+                    console.log('Device Info:', deviceInfo);
+                    console.log('Audio Stream State:', {
+                        src: audioStream.src,
+                        paused: audioStream.paused,
+                        ended: audioStream.ended,
+                        currentTime: audioStream.currentTime,
+                        duration: audioStream.duration,
+                        volume: audioStream.volume,
+                        muted: audioStream.muted,
+                        readyState: audioStream.readyState,
+                        networkState: audioStream.networkState,
+                        error: audioStream.error ? {
+                            code: audioStream.error.code,
+                            message: audioStream.error.message
+                        } : null
+                    });
+                    console.log('AudioContext:', audioContext ? {
+                        state: audioContext.state,
+                        sampleRate: audioContext.sampleRate
+                    } : 'Not initialized');
+                    console.log('Stream Source:', streamSource);
+                    console.log('Can Play Types:', {
+                        'audio/mpeg': audioStream.canPlayType('audio/mpeg'),
+                        'audio/mp3': audioStream.canPlayType('audio/mp3'),
+                        'audio/mpeg;codecs=mp3': audioStream.canPlayType('audio/mpeg;codecs=mp3')
+                    });
+                    console.log('Page Protocol:', window.location.protocol);
+                    console.log('Stream URL Protocol:', audioStream.src ? new URL(audioStream.src).protocol : 'none');
+                    console.log('=== End Diagnostics ===');
+                };
+                console.log('iOS Safari: Run window.diagnoseIOSAudio() in console for detailed diagnostics');
+            }
+
+            // Try autoplay, show prompt if blocked
+            let audioEnabled = false;
+            const promptOverlay = document.getElementById('autoplay-prompt');
+            const enableBtn = document.getElementById('enable-audio');
+            
+            const startAudio = () => {
+                audioEnabled = true;
+                
+                // Initialize Web Audio API for visualization (only once)
+                if (!audioContext) {
+                    try {
+                        setupAudioVisualization(audioLoop, 'ambient loop');
+                        // Resume audio context if suspended - critical for iOS Safari
+                        if (audioContext.state === 'suspended') {
+                            audioContext.resume().then(() => {
+                                console.log('AudioContext resumed');
+                                // iOS Safari: Ensure all audio elements are ready after resume
+                                if (deviceInfo.isIOSSafari) {
+                                    console.log('iOS Safari: AudioContext resumed after user interaction');
+                                }
+                            });
+                        }
+                    } catch (err) {
+                        console.warn('Could not setup audio visualization:', err);
+                    }
+                }
+                
+                // iOS Safari: Explicit play attempt for all audio elements after user gesture
+                if (deviceInfo.isIOSSafari) {
+                    // Touch all audio elements to initialize them with user gesture
+                    [audioLoop, audioStatic, audioStream].forEach(audio => {
+                        if (audio) {
+                            audio.load(); // Reload to ensure iOS recognizes user gesture
+                        }
+                    });
+                }
+                
+                // PRELOAD STREAM EARLY - connect and start buffering at 0 volume
+                // Skip for iOS Safari - let user explicitly start the stream
+                if (!streamSource && audioContext && !deviceInfo.isIOSSafari) {
+                    try {
+                        console.log('Early stream preload: Connecting stream to analyser...');
+                        streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                        
+                        // Set URL and start loading immediately
+                        const timestamp = Date.now();
+                        const random = Math.random();
+                        audioStream.src = `http://18.119.96.195:8000/radio.mp3?t=${timestamp}&nocache=${random}`;
+                        console.log('Early stream preload: URL set, loading stream...');
+                        audioStream.load();
+                        
+                        // Start playing silently in background to buffer
+                        audioStream.volume = 0;
+                        audioStream.play().then(() => {
+                            console.log('Stream preloaded and buffering in background at 0 volume');
+                        }).catch(err => {
+                            console.warn('Early stream preload play failed:', err);
+                        });
+                    } catch (err) {
+                        console.error('Early stream preload failed:', err);
+                    }
+                } else if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari: Skipping early stream preload, waiting for user play button');
+                }
+                
+                audioLoop.play().catch(() => {});
+                // Hide prompt with fade out
+                promptOverlay?.classList.remove('show');
+            };
+            
+            // Try silent autoplay test
+            audioLoop.play().then(() => {
+                // Autoplay succeeded! Audio is enabled
+                audioEnabled = true;
+                console.log('Autoplay allowed by browser');
+                
+                // Initialize Web Audio API for visualization
+                if (!audioContext) {
+                    try {
+                        setupAudioVisualization(audioLoop, 'ambient loop');
+                        // Resume audio context if suspended
+                        if (audioContext && audioContext.state === 'suspended') {
+                            audioContext.resume().then(() => {
+                                console.log('AudioContext resumed after autoplay');
+                            });
+                        }
+                    } catch (err) {
+                        console.warn('Could not setup audio visualization:', err);
+                    }
+                }
+                
+                // PRELOAD STREAM EARLY on autoplay success too
+                // Skip for iOS Safari - let user explicitly start the stream
+                if (!streamSource && audioContext && !deviceInfo.isIOSSafari) {
+                    try {
+                        console.log('Early stream preload (autoplay): Connecting stream to analyser...');
+                        streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                        
+                        // Set URL and start loading immediately
+                        const timestamp = Date.now();
+                        const random = Math.random();
+                        audioStream.src = `http://18.119.96.195:8000/radio.mp3?t=${timestamp}&nocache=${random}`;
+                        console.log('Early stream preload (autoplay): URL set, loading stream...');
+                        audioStream.load();
+                        
+                        // Start playing silently in background to buffer
+                        audioStream.volume = 0;
+                        audioStream.play().then(() => {
+                            console.log('Stream preloaded and buffering in background at 0 volume (autoplay path)');
+                        }).catch(err => {
+                            console.warn('Early stream preload play failed (autoplay):', err);
+                        });
+                    } catch (err) {
+                        console.error('Early stream preload failed (autoplay):', err);
+                    }
+                } else if (deviceInfo.isIOSSafari) {
+                    console.log('iOS Safari (autoplay): Skipping early stream preload, waiting for user play button');
+                }
+            }).catch(() => {
+                // Autoplay blocked - show our custom prompt
+                console.log('Autoplay blocked, showing prompt');
+                promptOverlay?.classList.add('show');
+            });
+            
+            // Handle enable audio button
+            enableBtn?.addEventListener('click', () => {
+                startAudio();
+            });
+
+            // Controls
+            const btnPlay = document.getElementById('btn-play');
+            const btnPause = document.getElementById('btn-pause');
+            const btnDiscord = document.getElementById('btn-discord');
+            const volSlider = document.getElementById('volume-slider');
+
+            const setRadioVolumeFromSlider = () => {
+                const v = Number(volSlider?.value ?? 35); // default 35
+                const scaled = Math.min(1, Math.max(0, (v / 100) * radioScale));
+                audioStream.volume = scaled;
+            };
+            setRadioVolumeFromSlider();
+
+            btnPlay?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                
+                console.log('Play button clicked');
+                
+                // Ensure audio context is running - critical for iOS Safari
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        console.log('AudioContext resumed on play button');
+                    });
+                }
+                
+                // If stream hasn't been connected yet, connect it first
+                // Skip Web Audio API for iOS Safari to avoid CORS issues
+                if (audioContext && !streamSource && !deviceInfo.isIOSSafari) {
+                    try {
+                        console.log('First play - connecting stream to analyser...');
+                        streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                        console.log('Stream connected successfully');
+                    } catch (err) {
+                        console.error('Failed to connect stream:', err);
+                    }
+                } else if (deviceInfo.isIOSSafari && !streamSource) {
+                    console.log('iOS Safari: Skipping Web Audio API connection, playing stream directly');
+                    streamSource = 'skipped'; // Mark as handled to prevent retries
+                }
+                
+                // Get fresh stream URL before playing to ensure live stream
+                if (audioStream.paused || !audioStream.src || audioStream.src === window.location.href) {
+                    console.log('Play button: Getting fresh stream URL');
+                    audioStream.src = getFreshStreamUrl();
+                    console.log('New stream URL:', audioStream.src);
+                    
+                    // iOS Safari: Explicit MIME type and load
+                    if (deviceInfo.isIOSSafari) {
+                        console.log('iOS Safari: Setting up stream with explicit MIME type');
+                        // Create a new Audio element if needed for iOS Safari
+                        const canPlayMp3 = audioStream.canPlayType('audio/mpeg');
+                        console.log('iOS Safari can play audio/mpeg:', canPlayMp3);
+                    }
+                    
+                    audioStream.load();
+                }
+                
+                // iOS Safari: Set volume before playing to ensure audio pipeline is ready
+                if (deviceInfo.isIOSSafari) {
+                    const currentVolume = audioStream.volume;
+                    audioStream.volume = currentVolume; // Re-set to ensure iOS registers it
+                }
+                
+                audioStream.play().then(() => {
+                    console.log('Stream playing successfully');
+                }).catch((err) => {
+                    console.error('Play failed:', err);
+                    // iOS Safari: Try alternative approach
+                    if (deviceInfo.isIOSSafari) {
+                        console.log('iOS Safari: Retrying playback after error...');
+                        setTimeout(() => {
+                            audioStream.load();
+                            audioStream.play().catch(e => console.error('iOS Safari retry failed:', e));
+                        }, 500);
+                    }
+                });
+            });
+            btnPause?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                audioStream.pause();
+            });
+            volSlider?.addEventListener('input', (e) => {
+                e.stopPropagation();
+                setRadioVolumeFromSlider();
+            });
+            btnDiscord?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.open('https://discord.com/invite/your-server', '_blank', 'noopener');
             });
         }
 
