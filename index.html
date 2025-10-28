@@ -871,10 +871,640 @@
         const animationDuration = 0.5; // seconds for one bounce
         let hoverEnabled = false;
 
+        // Audio references at module scope for accessibility
+        let audioLoop, audioStatic, audioStream;
+        const radioScale = 0.75; // cap radio at 75% volume
+        
+        // Audio visualization setup
+        let audioContext, analyser, dataArray, bufferLength;
+        let loopSource, streamSource;
+        let currentAudioSource = null;
+        
+        // Music reactive elements
+        let appRootElement, redOverlay, glowOverlay;
+        
+        // Visualization system
+        let visualizations = [];
+        let currentVisualizationIndex = 0;
+        let visualizationTransitionTimer = 0;
+        let visualizationDuration = 20; // seconds per visualization (base duration)
+        let isTransitioning = false;
+        
+        // Randomize duration for each visualization to keep it unpredictable
+        function getRandomVisualizationDuration() {
+            return 15 + Math.random() * 15; // Random duration between 15-30 seconds
+        }
+
         function onMouseMove(event) {
             hoverEnabled = true;
             mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
             mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+        }
+        
+        // Initialize audio visualization with gain control for smooth switching
+        let masterGain;
+        
+        function setupAudioVisualization(audioElement, label = 'audio') {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256; // Good balance of performance and detail
+                bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                // Create master gain node
+                masterGain = audioContext.createGain();
+                masterGain.gain.value = 1.0;
+                
+                // Route: analyser -> masterGain -> destination
+                analyser.connect(masterGain);
+                masterGain.connect(audioContext.destination);
+            }
+            
+            try {
+                // iOS Safari: Skip visualization for stream to avoid CORS issues
+                // We removed crossOrigin for iOS Safari to fix playback
+                if (deviceInfo.isIOSSafari && label === 'radio stream') {
+                    console.log('iOS Safari: Skipping Web Audio API for radio stream to avoid CORS issues');
+                    console.log('iOS Safari: Stream will play normally without visualization');
+                    return null; // Don't connect to Web Audio API
+                }
+                
+                // Create source from audio element (can only be done once per element)
+                const source = audioContext.createMediaElementSource(audioElement);
+                
+                // Connect source -> analyser
+                source.connect(analyser);
+                
+                console.log(`Audio visualization connected for ${label}`);
+                return source;
+            } catch (err) {
+                console.warn(`Could not setup visualization for ${label}:`, err);
+                return null;
+            }
+        }
+        
+        // Get current audio level (0-1)
+        let lastAudioLevel = 0;
+        let audioDebugCounter = 0;
+        function getAudioLevel() {
+            if (!analyser || !dataArray) return 0;
+            
+            // Resume audio context if it got suspended somehow
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume across frequency spectrum
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / bufferLength;
+            
+            // Normalize to 0-1 range and apply some scaling for better reactivity
+            const level = Math.min(1, (average / 255) * 2.5);
+            
+            // Debug logging every 180 frames (~3 seconds at 60fps)
+            audioDebugCounter++;
+            if (audioDebugCounter >= 180) {
+                const activeSource = !audioLoop?.paused ? 'loop' : !audioStream?.paused ? 'stream' : 'none';
+                console.log('Audio level:', level.toFixed(3), 'Raw avg:', average.toFixed(1), 'Active:', activeSource, 'Context:', audioContext?.state);
+                audioDebugCounter = 0;
+            }
+            
+            lastAudioLevel = level;
+            return level;
+        }
+        
+        // Get bass level specifically (lower frequencies)
+        function getBassLevel() {
+            if (!analyser || !dataArray) return 0;
+            
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Focus on lower frequencies (bass range, roughly 0-250Hz)
+            const bassRange = Math.floor(bufferLength * 0.2); // First 20% of spectrum
+            let sum = 0;
+            for (let i = 0; i < bassRange; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / bassRange;
+            
+            // Normalize and boost bass reactivity
+            return Math.min(1, (average / 255) * 3);
+        }
+        
+        // Get frequency data as array (for spectrum visualizations)
+        function getFrequencyData() {
+            if (!analyser || !dataArray) return new Uint8Array(32);
+            analyser.getByteFrequencyData(dataArray);
+            return dataArray;
+        }
+        
+        // Debug function to check audio setup
+        function checkAudioSetup() {
+            console.log('=== Audio Setup Check ===');
+            console.log('AudioContext:', audioContext ? 'Created' : 'Missing');
+            console.log('AudioContext state:', audioContext?.state);
+            console.log('Analyser:', analyser ? 'Created' : 'Missing');
+            console.log('Analyser fftSize:', analyser?.fftSize);
+            console.log('Loop source:', loopSource ? 'Connected' : 'Not connected');
+            console.log('Stream source:', streamSource ? 'Connected' : 'Not connected');
+            console.log('AudioLoop paused:', audioLoop?.paused);
+            console.log('AudioStream paused:', audioStream?.paused);
+            console.log('AudioStream src:', audioStream?.src || 'Not set');
+            console.log('========================');
+        }
+        
+        // ========== VISUALIZATION CLASSES ==========
+        
+        // 1. Radial Spectrum Analyzer - bars radiating from edges
+        class RadialSpectrum {
+            constructor(scene) {
+                this.group = new THREE.Group();
+                this.bars = [];
+                const barCount = 64;
+                const radius = 8; // Far from center
+                
+                for (let i = 0; i < barCount; i++) {
+                    const geometry = new THREE.BoxGeometry(0.08, 0.1, 0.08);
+                    const material = new THREE.MeshBasicMaterial({ 
+                        color: 0xffffff,
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0
+                    });
+                    const bar = new THREE.Mesh(geometry, material);
+                    
+                    const angle = (i / barCount) * Math.PI * 2;
+                    bar.position.x = Math.cos(angle) * radius;
+                    bar.position.y = Math.sin(angle) * radius;
+                    bar.position.z = -2;
+                    bar.rotation.z = angle;
+                    
+                    this.bars.push(bar);
+                    this.group.add(bar);
+                }
+                
+                scene.add(this.group);
+                this.group.visible = false;
+            }
+            
+            update(audioLevel, bassLevel, frequencyData) {
+                const stride = Math.floor(frequencyData.length / this.bars.length);
+                this.bars.forEach((bar, i) => {
+                    const freq = frequencyData[i * stride] / 255;
+                    const targetScale = 0.5 + freq * 3;
+                    bar.scale.y += (targetScale - bar.scale.y) * 0.15;
+                    bar.material.opacity = 0.3 + freq * 0.5;
+                });
+            }
+            
+            fadeIn(duration = 2) {
+                this.group.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.bars.forEach(bar => {
+                            bar.material.opacity = progress * 0.6;
+                        });
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.bars.forEach(bar => {
+                            bar.material.opacity = (1 - progress) * 0.6;
+                        });
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.group.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
+        }
+        
+        // 2. Particle Field - reactive particles in background
+        class ParticleField {
+            constructor(scene) {
+                const particleCount = 200;
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(particleCount * 3);
+                const velocities = [];
+                
+                for (let i = 0; i < particleCount; i++) {
+                    positions[i * 3] = (Math.random() - 0.5) * 20;
+                    positions[i * 3 + 1] = (Math.random() - 0.5) * 20;
+                    positions[i * 3 + 2] = (Math.random() - 0.5) * 10 - 5;
+                    
+                    velocities.push(new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.02,
+                        (Math.random() - 0.5) * 0.02,
+                        (Math.random() - 0.5) * 0.01
+                    ));
+                }
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                const material = new THREE.PointsMaterial({
+                    color: 0xffffff,
+                    size: 0.05,
+                    transparent: true,
+                    opacity: 0
+                });
+                
+                this.particles = new THREE.Points(geometry, material);
+                this.velocities = velocities;
+                this.basePositions = positions.slice();
+                scene.add(this.particles);
+                this.particles.visible = false;
+            }
+            
+            update(audioLevel, bassLevel) {
+                const positions = this.particles.geometry.attributes.position.array;
+                const pushForce = bassLevel * 0.3;
+                
+                for (let i = 0; i < positions.length / 3; i++) {
+                    const idx = i * 3;
+                    positions[idx] += this.velocities[i].x + pushForce * (Math.random() - 0.5);
+                    positions[idx + 1] += this.velocities[i].y + pushForce * (Math.random() - 0.5);
+                    positions[idx + 2] += this.velocities[i].z;
+                    
+                    // Wrap around
+                    if (Math.abs(positions[idx]) > 10) positions[idx] *= -0.9;
+                    if (Math.abs(positions[idx + 1]) > 10) positions[idx + 1] *= -0.9;
+                    if (positions[idx + 2] < -8) positions[idx + 2] = 2;
+                    if (positions[idx + 2] > 2) positions[idx + 2] = -8;
+                }
+                
+                this.particles.geometry.attributes.position.needsUpdate = true;
+                this.particles.material.size = 0.05 + audioLevel * 0.08;
+            }
+            
+            fadeIn(duration = 2) {
+                this.particles.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.particles.material.opacity = progress * 0.4;
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.particles.material.opacity = (1 - progress) * 0.4;
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.particles.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
+        }
+        
+        // 3. Wireframe Torus - pulsing geometric shape
+        class WireframeTorus {
+            constructor(scene) {
+                this.group = new THREE.Group();
+                
+                // Multiple nested tori for depth
+                this.tori = [];
+                for (let i = 0; i < 3; i++) {
+                    const geometry = new THREE.TorusGeometry(5 + i * 0.5, 0.1, 8, 32);
+                    const material = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0
+                    });
+                    const torus = new THREE.Mesh(geometry, material);
+                    torus.rotation.x = Math.PI / 2;
+                    torus.position.z = -5;
+                    this.tori.push(torus);
+                    this.group.add(torus);
+                }
+                
+                scene.add(this.group);
+                this.group.visible = false;
+                this.rotationSpeed = 0.005;
+            }
+            
+            update(audioLevel, bassLevel) {
+                this.tori.forEach((torus, i) => {
+                    torus.rotation.z += this.rotationSpeed * (1 + i * 0.2);
+                    const scale = 1 + bassLevel * 0.15 + audioLevel * 0.1;
+                    torus.scale.set(scale, scale, scale);
+                    torus.material.opacity = 0.2 + audioLevel * 0.3;
+                });
+            }
+            
+            fadeIn(duration = 2) {
+                this.group.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.tori.forEach(torus => {
+                            torus.material.opacity = progress * 0.3;
+                        });
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.tori.forEach(torus => {
+                            torus.material.opacity = (1 - progress) * 0.3;
+                        });
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.group.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
+        }
+        
+        // 4. Waveform Ring - circular waveform display
+        class WaveformRing {
+            constructor(scene) {
+                const segments = 128;
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(segments * 3);
+                const radius = 6;
+                
+                for (let i = 0; i < segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    positions[i * 3] = Math.cos(angle) * radius;
+                    positions[i * 3 + 1] = Math.sin(angle) * radius;
+                    positions[i * 3 + 2] = -3;
+                }
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                const material = new THREE.LineBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0,
+                    linewidth: 6
+                });
+                
+                this.line = new THREE.Line(geometry, material);
+                this.baseRadius = radius;
+                scene.add(this.line);
+                this.line.visible = false;
+            }
+            
+            update(audioLevel, bassLevel, frequencyData) {
+                const positions = this.line.geometry.attributes.position.array;
+                const segments = positions.length / 3;
+                const stride = Math.floor(frequencyData.length / segments);
+                
+                for (let i = 0; i < segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    const freq = frequencyData[i * stride] / 255;
+                    const radius = this.baseRadius + freq * 2;
+                    positions[i * 3] = Math.cos(angle) * radius;
+                    positions[i * 3 + 1] = Math.sin(angle) * radius;
+                }
+                
+                this.line.geometry.attributes.position.needsUpdate = true;
+                this.line.rotation.z += 0.002;
+            }
+            
+            fadeIn(duration = 2) {
+                this.line.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.line.material.opacity = progress * 0.5;
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.line.material.opacity = (1 - progress) * 0.5;
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.line.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
+        }
+        
+        // 5. Grid Distortion - deforming background grid
+        class GridDistortion {
+            constructor(scene) {
+                const size = 20;
+                const divisions = 40;
+                
+                // Create custom grid geometry for deformation
+                const geometry = new THREE.BufferGeometry();
+                const vertices = [];
+                
+                const step = size / divisions;
+                for (let i = 0; i <= divisions; i++) {
+                    // Horizontal lines
+                    vertices.push(-size/2, i * step - size/2, -8);
+                    vertices.push(size/2, i * step - size/2, -8);
+                    // Vertical lines
+                    vertices.push(i * step - size/2, -size/2, -8);
+                    vertices.push(i * step - size/2, size/2, -8);
+                }
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+                
+                const material = new THREE.LineBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0
+                });
+                
+                this.grid = new THREE.LineSegments(geometry, material);
+                this.basePositions = vertices.slice();
+                this.divisions = divisions;
+                scene.add(this.grid);
+                this.grid.visible = false;
+                this.time = 0;
+            }
+            
+            update(audioLevel, bassLevel) {
+                this.time += 0.02;
+                const positions = this.grid.geometry.attributes.position.array;
+                
+                for (let i = 0; i < positions.length / 3; i++) {
+                    const idx = i * 3;
+                    const x = this.basePositions[idx];
+                    const y = this.basePositions[idx + 1];
+                    
+                    // Wave distortion based on audio
+                    const distortion = Math.sin(x * 0.3 + this.time) * Math.cos(y * 0.3 + this.time) * (bassLevel * 4 + audioLevel);
+                    positions[idx + 2] = this.basePositions[idx + 2] + distortion;
+                }
+                
+                this.grid.geometry.attributes.position.needsUpdate = true;
+            }
+            
+            fadeIn(duration = 2) {
+                this.grid.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.grid.material.opacity = progress * 0.15;
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.grid.material.opacity = (1 - progress) * 0.15;
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.grid.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
+        }
+        
+        // 6. Orbital Rings - rotating rings at different angles
+        class OrbitalRings {
+            constructor(scene) {
+                this.group = new THREE.Group();
+                this.rings = [];
+                
+                for (let i = 0; i < 4; i++) {
+                    const geometry = new THREE.RingGeometry(4 + i * 0.8, 4.1 + i * 0.8, 64);
+                    const material = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        opacity: 0
+                    });
+                    const ring = new THREE.Mesh(geometry, material);
+                    ring.rotation.x = Math.PI / 2 + (i * Math.PI / 8);
+                    ring.rotation.y = i * Math.PI / 6;
+                    ring.position.z = -4;
+                    this.rings.push(ring);
+                    this.group.add(ring);
+                }
+                
+                scene.add(this.group);
+                this.group.visible = false;
+            }
+            
+            update(audioLevel, bassLevel) {
+                this.rings.forEach((ring, i) => {
+                    ring.rotation.z += 0.003 * (i % 2 === 0 ? 1 : -1);
+                    const scale = 1 + bassLevel * 0.1;
+                    ring.scale.set(scale, scale, 1);
+                    ring.material.opacity = 0.15 + audioLevel * 0.25;
+                });
+            }
+            
+            fadeIn(duration = 2) {
+                this.group.visible = true;
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.rings.forEach(ring => {
+                            ring.material.opacity = progress * 0.2;
+                        });
+                        if (progress < 1) requestAnimationFrame(tick);
+                        else resolve();
+                    };
+                    tick();
+                });
+            }
+            
+            fadeOut(duration = 2) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const tick = () => {
+                        const elapsed = (performance.now() - start) / 1000;
+                        const progress = Math.min(1, elapsed / duration);
+                        this.rings.forEach(ring => {
+                            ring.material.opacity = (1 - progress) * 0.2;
+                        });
+                        if (progress < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            this.group.visible = false;
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+            }
         }
 
         function init() {
@@ -905,19 +1535,22 @@
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
             scene.add(ambientLight);
 
-            // Sunlight with shadows
-            const sunLight = new THREE.DirectionalLight(0xfff8e7, 1.0);
-            sunLight.position.set(10, 10, 54);
-            sunLight.castShadow = true;
-            sunLight.shadow.mapSize.width = 2048;
-            sunLight.shadow.mapSize.height = 2048;
-            sunLight.shadow.camera.near = 0.5;
-            sunLight.shadow.camera.far = 50;
-            sunLight.shadow.camera.left = -10;
-            sunLight.shadow.camera.right = 10;
-            sunLight.shadow.camera.top = 10;
-            sunLight.shadow.camera.bottom = -10;
-            scene.add(sunLight);
+            // Sunlight with shadows - store reference for music reactivity
+            window.sunLight = new THREE.DirectionalLight(0xfff8e7, 1.0);
+            window.sunLight.position.set(10, 10, 54);
+            window.sunLight.castShadow = true;
+            window.sunLight.shadow.mapSize.width = 2048;
+            window.sunLight.shadow.mapSize.height = 2048;
+            window.sunLight.shadow.camera.near = 0.5;
+            window.sunLight.shadow.camera.far = 50;
+            window.sunLight.shadow.camera.left = -10;
+            window.sunLight.shadow.camera.right = 10;
+            window.sunLight.shadow.camera.top = 10;
+            window.sunLight.shadow.camera.bottom = -10;
+            scene.add(window.sunLight);
+            
+            // Store ambient light reference too
+            window.ambientLight = ambientLight;
 
             // Mouse and raycaster setup
             mouse = new THREE.Vector2();
@@ -1075,6 +1708,17 @@
 
             moonGroup.position.x = 1.0; // Smaller orbit for smaller planet
             moonOrbit.add(moonGroup);
+            
+            // --- Initialize visualizations ---
+            visualizations = [
+                new RadialSpectrum(scene),
+                new ParticleField(scene),
+                new WireframeTorus(scene),
+                new WaveformRing(scene),
+                new GridDistortion(scene),
+                new OrbitalRings(scene)
+            ];
+            console.log('Initialized', visualizations.length, 'visualizations');
 
             // --- Create the Satellite (opposite side of the moon) ---
             satelliteOrbit = new THREE.Group();
@@ -1708,6 +2352,8 @@
         }
 
         let uiVisible = false;
+        let hasBeenActivated = false; // Track if we've done the initial activation
+        
         function onPlanetClick(event) {
             // Basic raycast to ensure planet was clicked
             let cx, cy;
@@ -1738,6 +2384,26 @@
             outlineMesh.material.color.setHex(accent); // planet
             if (moonOutlineRef) moonOutlineRef.material.color.setHex(accent); // moon
 
+            // Check if this is the first time opening (before setting hasBeenActivated)
+            const isFirstActivation = uiVisible && !hasBeenActivated;
+            
+            console.log('Planet clicked - uiVisible:', uiVisible, 'hasBeenActivated:', hasBeenActivated, 'isFirstActivation:', isFirstActivation);
+            
+            // ADD postfx on FIRST activation only, keep it on forever after
+            if (isFirstActivation) {
+                const appRootEl = document.getElementById('app-root');
+                appRootEl?.classList.add('postfx-on');
+                hasBeenActivated = true;
+                console.log('Set hasBeenActivated to true');
+                
+                // Ensure audio context is running for visualizations
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        console.log('AudioContext resumed on first planet activation');
+                    });
+                }
+            }
+
             // prepare letter jitter spans once when showing
             if (uiVisible) {
                 const labels = document.querySelectorAll('#ui-layer .letters');
@@ -1762,6 +2428,161 @@
                     });
                     label.dataset.split = '1';
                 });
+            }
+
+            // Transition audio on FIRST activation only
+            if (isFirstActivation) {
+                console.log('FIRST ACTIVATION - Starting audio transition');
+                const appRootEl = document.getElementById('app-root');
+                
+                // Helper: fade out audio
+                const fadeOut = (audio, ms = 300) => new Promise(resolve => {
+                    if (!audio) { resolve(); return; }
+                    const start = audio.volume;
+                    const t0 = performance.now();
+                    const tick = () => {
+                        const dt = performance.now() - t0;
+                        const k = Math.min(1, dt / ms);
+                        audio.volume = start * (1 - k);
+                        if (k < 1) requestAnimationFrame(tick); 
+                        else { 
+                            audio.pause(); 
+                            resolve(); 
+                        }
+                    };
+                    tick();
+                });
+                
+                // Helper: fade in audio
+                const fadeIn = (audio, target = 0.35, ms = 300) => new Promise(resolve => {
+                    console.log('fadeIn called - target:', target, 'ms:', ms, 'audio paused:', audio?.paused);
+                    if (!audio) { 
+                        console.log('fadeIn: no audio element provided');
+                        resolve(); 
+                        return; 
+                    }
+                    const startVol = audio.volume || 0.001;
+                    console.log('fadeIn: starting volume:', startVol);
+                    
+                    // Only call play if not already playing
+                    if (audio.paused) {
+                        console.log('fadeIn: audio is paused, calling play()');
+                        audio.volume = 0.001;
+                        audio.play().catch((err) => {
+                            console.error('fadeIn: play() failed:', err);
+                        });
+                    } else {
+                        console.log('fadeIn: audio already playing, just fading volume');
+                    }
+                    
+                    const t0 = performance.now();
+                    const tick = () => {
+                        const dt = performance.now() - t0;
+                        const k = Math.min(1, dt / ms);
+                        audio.volume = startVol + (target - startVol) * k;
+                        if (k < 1) {
+                            requestAnimationFrame(tick);
+                        } else {
+                            console.log('fadeIn: complete. Final volume:', audio.volume);
+                            resolve();
+                        }
+                    };
+                    tick();
+                });
+
+                // Execute audio sequence (postfx already added above for instant visual transition)
+                (async () => {
+                    try {
+                        // 1. Fade out nighttime loop
+                        if (audioLoop) await fadeOut(audioLoop, 250);
+                        
+                        // 2. Play static.mp3 once
+                        if (audioStatic) {
+                            console.log('Playing static sound...');
+                            audioStatic.volume = 0.6;
+                            audioStatic.currentTime = 0;
+                            const staticPromise = audioStatic.play();
+                            console.log('Static play() promise created');
+                            
+                            // Stream is already preloaded and playing at 0 volume from page load
+                            // Just verify it's playing
+                            if (audioStream) {
+                                console.log('Checking stream status during static...');
+                                console.log('Stream paused?', audioStream.paused);
+                                console.log('Stream src:', audioStream.src || 'NOT SET');
+                                console.log('Stream current volume:', audioStream.volume);
+                                
+                                // If stream isn't playing yet (edge case), start it
+                                if (audioStream.paused && audioStream.src) {
+                                    console.log('Stream was paused, starting it at 0 volume...');
+                                    audioStream.volume = 0;
+                                    await audioStream.play().catch(err => {
+                                        console.warn('Failed to start paused stream:', err);
+                                    });
+                                }
+                                
+                                console.log('Stream ready for fade-in');
+                            }
+                            
+                            // Wait for static to finish
+                            try {
+                                await staticPromise;
+                                console.log('Static play promise resolved, waiting for ended event...');
+                                
+                                // Wait for static to end, with a timeout fallback
+                                const staticEnded = new Promise(res => audioStatic.addEventListener('ended', res, { once: true }));
+                                const timeout = new Promise(res => setTimeout(() => {
+                                    console.warn('Static timeout - proceeding anyway after 1.5 seconds');
+                                    res();
+                                }, 1500));
+                                
+                                await Promise.race([staticEnded, timeout]);
+                                console.log('Static finished (either ended or timed out)');
+                            } catch (err) {
+                                console.error('Error waiting for static to finish:', err);
+                            }
+                        }
+                        
+                        // 3. Start radio stream with fade in (already buffered!)
+                        if (audioStream) {
+                            console.log('Starting stream fade-in sequence');
+                            console.log('Stream paused?', audioStream.paused, 'Current volume:', audioStream.volume);
+                            
+                            const volEl = document.getElementById('volume-slider');
+                            console.log('Volume slider element:', volEl);
+                            console.log('Volume slider value:', volEl?.value);
+                            const v = Number(volEl?.value ?? 35);
+                            console.log('Parsed volume value (v):', v);
+                            console.log('radioScale:', radioScale);
+                            const target = Math.min(1, Math.max(0, (v / 100) * radioScale));
+                            console.log('Calculated target volume:', target);
+                            
+                            // Ensure stream is playing before fading
+                            if (audioStream.paused) {
+                                console.log('Stream was paused, starting playback...');
+                                try {
+                                    await audioStream.play();
+                                    console.log('Stream started successfully');
+                                } catch (err) {
+                                    console.error('Failed to start stream:', err);
+                                }
+                            } else {
+                                console.log('Stream already playing, no need to call play()');
+                            }
+                            
+                            // Stream is already playing at 0.001 volume, just fade it up
+                            console.log('About to fade volume from', audioStream.volume, 'to', target);
+                            await fadeIn(audioStream, target, 300);
+                            console.log('Stream fade-in complete. Final volume:', audioStream.volume);
+                            console.log('Verifying final volume is correct:', audioStream.volume, '(expected:', target, ')');
+                        }
+                        
+                        console.log('=== Audio Transition Complete ===');
+                    } catch (err) {
+                        console.error('Audio transition error:', err);
+                        console.error('Error stack:', err.stack);
+                    }
+                })();
             }
         }
 
@@ -1792,6 +2613,64 @@
             br.style.left = (planetScreen.x + gap) + 'px';
             br.style.top  = (planetScreen.y + gap) + 'px';
         }
+        
+        // Visualization transition system - randomized with no gaps
+        async function transitionToNextVisualization() {
+            if (isTransitioning || visualizations.length === 0) return;
+            isTransitioning = true;
+            
+            const prevIndex = currentVisualizationIndex;
+            
+            // Pick a random visualization (but not the current one)
+            let nextIndex;
+            if (visualizations.length > 1) {
+                do {
+                    nextIndex = Math.floor(Math.random() * visualizations.length);
+                } while (nextIndex === prevIndex);
+            } else {
+                nextIndex = 0;
+            }
+            
+            console.log(`Transitioning from visualization ${prevIndex} to ${nextIndex} (random)`);
+            
+            // Start next visualization immediately (no gap)
+            visualizations[nextIndex].fadeIn(2.0);
+            
+            // Fade out current after a brief overlap for smooth transition
+            setTimeout(() => {
+                visualizations[prevIndex].fadeOut(1.5);
+            }, 500); // 0.5 second overlap for seamless transition
+            
+            currentVisualizationIndex = nextIndex;
+            visualizationTransitionTimer = 0;
+            
+            // Set a new random duration for the next visualization
+            visualizationDuration = getRandomVisualizationDuration();
+            console.log(`Next visualization will last ${visualizationDuration.toFixed(1)} seconds`);
+            
+            // Mark as not transitioning after fade-in starts (allows updates immediately)
+            setTimeout(() => {
+                isTransitioning = false;
+            }, 500);
+        }
+        
+        // Start the visualization system (called when audio starts)
+        let visualizationsStarted = false;
+        function startVisualizations() {
+            if (visualizationsStarted || visualizations.length === 0) return;
+            
+            // Pick a random starting visualization
+            currentVisualizationIndex = Math.floor(Math.random() * visualizations.length);
+            console.log('Starting visualization system with random visualization:', currentVisualizationIndex);
+            
+            // Set initial random duration
+            visualizationDuration = getRandomVisualizationDuration();
+            console.log(`First visualization will last ${visualizationDuration.toFixed(1)} seconds`);
+            
+            visualizations[currentVisualizationIndex].fadeIn(2);
+            visualizationTransitionTimer = 0;
+            visualizationsStarted = true;
+        }
 
         function animate() {
             requestAnimationFrame(animate);
@@ -1812,6 +2691,70 @@
                 satelliteOutlineRef.materials.forEach(material => material.color.setHex(outlineColor));
             }
 
+            // MUSIC REACTIVE SCALING - Get audio levels
+            const bassLevel = getBassLevel();
+            const audioLevel = getAudioLevel();
+            const frequencyData = getFrequencyData();
+            
+            // Update all visible visualizations (allows smooth transitions with overlap)
+            if (hasBeenActivated && visualizations.length > 0 && visualizationsStarted) {
+                // Update any visible visualization (not just current one)
+                visualizations.forEach(vis => {
+                    const isVisible = vis.group?.visible || 
+                                     vis.particles?.visible || 
+                                     vis.line?.visible || 
+                                     vis.grid?.visible ||
+                                     false;
+                    
+                    if (isVisible) {
+                        vis.update(audioLevel, bassLevel, frequencyData);
+                    }
+                });
+                
+                // Timer for automatic transitions (only increment when not transitioning)
+                if (!isTransitioning) {
+                    visualizationTransitionTimer += 1/60; // Assuming 60 FPS
+                    if (visualizationTransitionTimer >= visualizationDuration) {
+                        transitionToNextVisualization();
+                    }
+                }
+            }
+            
+            // Combine bass (for punch) and overall level (for smoothness)
+            const reactiveScale = 1 + (bassLevel * 0.06) + (audioLevel * 0.09);
+            
+            // MUSIC REACTIVE POST-FX & LIGHTING (higher threshold for stage light effect)
+            // Activate after first planet click (hasBeenActivated), regardless of UI visibility
+            if (hasBeenActivated) {
+                // Start visualizations if not already started
+                startVisualizations();
+                
+                // Update visualization colors and effects
+                // Red filter brightness - pulse with bass (0.8 to 1.3 range)
+                const redBrightness = 0.85 + (bassLevel * 0.05) + (audioLevel * 0.05);
+                document.documentElement.style.setProperty('--red-brightness', redBrightness.toFixed(3));
+                
+                // Glow scale - expand with strong beats (0.95 to 1.15 range)
+                const glowScale = 0.98 + (bassLevel * 0.12) + (audioLevel * 0.06);
+                document.documentElement.style.setProperty('--glow-scale', glowScale.toFixed(3));
+                
+                // 3D Scene lighting - dim/brighten like stage lights
+                if (window.sunLight) {
+                    // Base intensity 1.0, pulse up to 1.5 on beats
+                    window.sunLight.intensity = 1.0 + (bassLevel * 0.2) + (audioLevel * 0.2);
+                }
+                if (window.ambientLight) {
+                    // Base 0.3, pulse up to 0.5 on beats
+                    window.ambientLight.intensity = 0.3 + (bassLevel * 0.05) + (audioLevel * 0.08);
+                }
+            } else {
+                // Before first activation - use default lighting
+                document.documentElement.style.setProperty('--red-brightness', '1');
+                document.documentElement.style.setProperty('--glow-scale', '1');
+                if (window.sunLight) window.sunLight.intensity = 0.3;
+                if (window.ambientLight) window.ambientLight.intensity = 0.3;
+            }
+            
             // Bounce animation: trigger once on hover enter (state change)
             if (currentHovered && !wasHovered && !animating) {
                 animating = true;
@@ -1823,16 +2766,16 @@
                 if (elapsed < animationDuration) {
                     const progress = elapsed / animationDuration;
                     const bounceScale = 1 + 0.05 * Math.sin( Math.PI * progress ); // One full grow-shrink cycle
-                    planetGroup.scale.set( bounceScale, bounceScale, bounceScale );
+                    // Apply both bounce AND music reactivity
+                    const finalScale = bounceScale * reactiveScale;
+                    planetGroup.scale.set( finalScale, finalScale, finalScale );
                 } else {
                     animating = false;
-                    planetGroup.scale.set( 1, 1, 1 );
+                    planetGroup.scale.set( reactiveScale, reactiveScale, reactiveScale );
                 }
-            }
-
-            // Reset scale if not hovered and not animating
-            if (!currentHovered && !animating) {
-                planetGroup.scale.set( 1, 1, 1 );
+            } else {
+                // Apply music reactivity when not bouncing
+                planetGroup.scale.set( reactiveScale, reactiveScale, reactiveScale );
             }
 
             // Update previous state
