@@ -41,24 +41,40 @@
             inset: 0;
         }
         
-        /* Universal post-processing using CSS filters (works on all platforms) */
-        #scene-root, #ui-layer {
+        /* Universal post-processing using CSS filters (enable only when .postfx-on) */
+        #scene-root, #ui-layer, #page-title {
+            transition: filter 0.3s ease-out, -webkit-filter 0.3s ease-out;
+        }
+        
+        #app-root.postfx-on #scene-root,
+        #app-root.postfx-on #ui-layer,
+        #app-root.postfx-on #page-title {
             filter: saturate(3) contrast(2) brightness(1) invert(1);
             -webkit-filter: saturate(2) contrast(2) brightness(2) ;
         }
         
-        /* Red screen overlay - vibrant neon red (multiply layer to darken inverted background) */
+        /* Color screen overlay - vibrant neon (multiply layer to darken inverted background) */
+        /* Color controlled by CSS variables for easy switching */
         #app-root::after {
             content: '';
             position: fixed;
             inset: 0;
             background: radial-gradient(ellipse at center, 
-                rgba(255, 0, 0, 0.95) 0%, 
-                rgb(255, 0, 0) 50%,
-                rgb(255, 0, 0) 100%);
+                rgba(var(--filter-color-rgb, 255, 0, 0), 0.95) 0%, 
+                rgb(var(--filter-color-rgb, 255, 0, 0)) 50%,
+                rgb(var(--filter-color-rgb, 255, 0, 0)) 100%);
             mix-blend-mode:darken;
             pointer-events: none;
             z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s ease-out, background 0.4s ease;
+            /* Music reactive intensity - controlled by JS via CSS variable */
+            filter: brightness(var(--red-brightness, 1));
+            -webkit-filter: brightness(var(--red-brightness, 1));
+        }
+        
+        #app-root.postfx-on::after {
+            opacity: 1;
         }
         
         /* Additional glow layer for neon effect */
@@ -75,6 +91,14 @@
             z-index: 99;
             filter: blur(40px);
             -webkit-filter: blur(40px);
+            opacity: 0;
+            transition: opacity 0.3s ease-out;
+            /* Music reactive glow - controlled by JS via CSS variable */
+            transform: scale(var(--glow-scale, 1));
+        }
+        
+        #app-root.postfx-on::before {
+            opacity: 1;
         }
 
         /* Hosting container for the WebGL canvas to make mobile layering explicit */
@@ -404,6 +428,65 @@
         @keyframes floaty {
             0%, 100% { translate: 0 0; }
             50% { translate: 0 -8px; }
+        }
+        
+        /* Color cycle controls - bottom right anchored */
+        #color-controls {
+            position: fixed;
+            bottom: clamp(20px, 3vh, 40px);
+            right: clamp(20px, 3vw, 40px);
+            display: flex;
+            gap: 12px;
+            z-index: 200;
+            pointer-events: auto;
+        }
+        
+        .color-arrow-btn {
+            width: 50px;
+            height: 50px;
+            background: #fff8ea;
+            border: 4px solid #000000;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+        
+        .color-arrow-btn:hover {
+            background: #00ff00;
+            transform: translateY(-2px);
+            box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.4);
+        }
+        
+        .color-arrow-btn:active {
+            transform: translateY(1px);
+            box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.3);
+        }
+        
+        .color-arrow-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #000000;
+            transition: fill 0.2s ease;
+        }
+        
+        .color-arrow-btn:hover svg {
+            fill: #ffffff;
+        }
+        
+        /* Responsive scaling for smaller screens */
+        @media (max-width: 640px) {
+            .color-arrow-btn {
+                width: 44px;
+                height: 44px;
+            }
+            .color-arrow-btn svg {
+                width: 20px;
+                height: 20px;
+            }
         }
     </style>
 
@@ -1049,6 +1132,46 @@
             }, { passive: true });
 
             window.addEventListener('resize', onWindowResize, false);
+            
+            // Get references to music reactive overlay elements
+            appRootElement = document.getElementById('app-root');
+            // Get pseudo-elements via computed style (will manipulate via CSS variables instead)
+            document.documentElement.style.setProperty('--red-brightness', '1');
+            document.documentElement.style.setProperty('--glow-scale', '1');
+            
+            // Color cycling system for post-FX filter
+            const colorPresets = [
+                { name: 'red', rgb: '255, 0, 0' },
+                { name: 'green', rgb: '0, 195, 80' },
+                { name: 'purple', rgb: '100, 40, 235' },
+                { name: 'blue', rgb: '10, 60, 255' }
+            ];
+            let currentColorIndex = 0;
+            
+            // Set initial color (red)
+            document.documentElement.style.setProperty('--filter-color-rgb', colorPresets[0].rgb);
+            
+            function cycleColor(direction) {
+                // direction: 1 for next, -1 for previous
+                currentColorIndex = (currentColorIndex + direction + colorPresets.length) % colorPresets.length;
+                const color = colorPresets[currentColorIndex];
+                document.documentElement.style.setProperty('--filter-color-rgb', color.rgb);
+                console.log('Color changed to:', color.name);
+            }
+            
+            // Add event listeners for color cycle buttons
+            const btnColorPrev = document.getElementById('btn-color-prev');
+            const btnColorNext = document.getElementById('btn-color-next');
+            
+            btnColorPrev?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                cycleColor(-1);
+            });
+            
+            btnColorNext?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                cycleColor(1);
+            });
 
             // Apply jitter to page title characters
             const titleChars = document.querySelectorAll('#page-title span');
