@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>lops1de</title>
+    <title>dumpradio</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         html, body {
@@ -125,11 +125,23 @@
             -webkit-filter: saturate(1) contrast(1) brightness(1) invert(1);
         }
         
+        /* Mobile-specific title scaling */
+        body.mobile #page-title {
+            font-size: clamp(32px, 8vw, 70px);
+            letter-spacing: 0.2em;
+            white-space: nowrap;
+        }
+        
         #page-title span {
             display: inline-block;
             animation: titleJitter 4s linear infinite;
             font-family:monospace;
             font-size:20px;
+        }
+        
+        /* Mobile-specific title character size */
+        body.mobile #page-title span {
+            font-size: 14px;
         }
         
         @keyframes titleJitter {
@@ -340,12 +352,21 @@
 
 
     <!-- Background particles removed -->
+    
+    <!-- Autoplay prompt overlay -->
+    <div id="autoplay-prompt">
+        <div class="prompt-content">
+            <h2>🎵 Audio Experience</h2>
+            <p>This site features ambient music and audio elements.<br>Click below to enable sound and begin your journey.</p>
+            <button id="enable-audio">Enable Audio</button>
+        </div>
+    </div>
 
     <!-- Wrap all on-screen content for unified mobile-friendly post FX -->
     <div id="app-root">
         <!-- Page title -->
         <div id="page-title">
-            <span>l</span><span>o</span><span>p</span><span>s</span><span>1</span><span>d</span><span>e</span>
+            <span>d</span><span>u</span><span>m</span><span>p</span><span>r</span><span>a</span><span>d</span><span>i</span><span>o</span>
         </div>
 
         <!-- Scene root ensures canvas stacking is explicit on mobile -->
