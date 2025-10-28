@@ -277,7 +277,8 @@
             box-shadow: 0 10px 0 rgba(255, 72, 72, 0.25);
             transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.96);
             opacity: 0;
-            transition: opacity 160ms ease, transform 200ms cubic-bezier(.2,.9,.2,1);
+            transition: opacity 160ms ease, transform 200ms cubic-bezier(.2,.9,.2,1), 
+                        background 150ms ease, color 150ms ease, width 200ms ease, box-shadow 200ms ease;
             pointer-events: auto; /* clickable buttons */
             cursor: pointer;
             user-select: none;
@@ -292,6 +293,7 @@
             background: #ff5f02;
             clip-path: var(--path);
             z-index: -1;
+            transition: background 150ms ease;
         }
 
         /* Hard dropshadow in accent color (no blur) */
@@ -303,23 +305,24 @@
             clip-path: var(--path);
             transform: translate(2px, 0px) scale(0.9); /* larger hard offset + size */
             z-index: -1; /* behind bubble but above canvas */
+            transition: background 150ms ease;
         }
 
         .speech-bubble:hover {
             transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(1.08) translateY(-2px);
             box-shadow: 0 15px 35px rgba(255, 72, 72, 0.4);
-            background: #ff5724d8;
-            color: #ff5f02;
+            background: #00ff00;
+            color: #000000;
             animation-play-state: paused;
             width: clamp(145px, 38vw, 240px);
         }
 
         .speech-bubble:hover::before {
-            background: #ffffff;
+            background: #000000;
         }
 
         .speech-bubble:hover::after {
-            background: #ffffff;
+            background: #000000;
         }
 
         .speech-bubble:active {
