@@ -1078,7 +1078,7 @@
                     bar.scale.y += (targetScale - bar.scale.y) * 0.15;
                     bar.material.opacity = 0.3 + freq * 0.5;
                 });
-            }
+            } 
             
             fadeIn(duration = 2) {
                 this.group.visible = true;
@@ -2512,6 +2512,37 @@
                 console.log('FIRST ACTIVATION - Starting audio transition');
                 const appRootEl = document.getElementById('app-root');
                 
+                // CRITICAL FOR MOBILE: Start stream playing NOW (synchronously) to preserve user gesture
+                // This must happen directly in the click handler, not in an async callback
+                if (audioStream) {
+                    console.log('MOBILE: Starting stream synchronously on user click...');
+                    
+                    // Set up stream if not already set
+                    if (!audioStream.src || audioStream.src === window.location.href) {
+                        console.log('MOBILE: Setting stream URL synchronously...');
+                        audioStream.src = getFreshStreamUrl();
+                        audioStream.load();
+                        
+                        // Connect to Web Audio API if needed
+                        if (audioContext && !streamSource) {
+                            try {
+                                streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                                console.log('MOBILE: Stream connected to Web Audio API');
+                            } catch (err) {
+                                console.warn('MOBILE: Could not connect to Web Audio API:', err);
+                            }
+                        }
+                    }
+                    
+                    // Start playing at 0 volume immediately (synchronously!)
+                    audioStream.volume = 0;
+                    audioStream.play().then(() => {
+                        console.log('MOBILE: Stream started successfully in click handler');
+                    }).catch(err => {
+                        console.error('MOBILE: Failed to start stream in click handler:', err);
+                    });
+                }
+                
                 // Helper: fade out audio
                 const fadeOut = (audio, ms = 300) => new Promise(resolve => {
                     if (!audio) { resolve(); return; }
@@ -2581,41 +2612,25 @@
                             const staticPromise = audioStatic.play();
                             console.log('Static play() promise created');
                             
-                            // Stream is already preloaded and playing at 0 volume from page load
-                            // Just verify it's playing
+                            // Stream should already be playing at 0 volume from click handler
+                            // Just verify it's ready
                             if (audioStream) {
                                 console.log('Checking stream status during static...');
                                 console.log('Stream paused?', audioStream.paused);
                                 console.log('Stream src:', audioStream.src || 'NOT SET');
                                 console.log('Stream current volume:', audioStream.volume);
                                 
-                                // MOBILE FIX: If stream has no src or is paused, set it up now
-                                if (!audioStream.src || audioStream.src === window.location.href) {
-                                    console.log('MOBILE: Stream src not set, setting it now...');
-                                    audioStream.src = getFreshStreamUrl();
-                                    console.log('MOBILE: Stream src set to:', audioStream.src);
-                                    audioStream.load();
-                                }
-                                
-                                // If stream isn't playing yet, start it
+                                // Stream should be playing now - this is just a safety check
                                 if (audioStream.paused) {
-                                    console.log('Stream is paused, starting it at 0 volume...');
+                                    console.warn('WARNING: Stream is paused during static - this should not happen');
+                                    console.log('Attempting to restart stream...');
                                     audioStream.volume = 0;
-                                    try {
-                                        await audioStream.play();
-                                        console.log('Stream started successfully during static');
-                                        if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
-                                            console.log('MOBILE: Stream playback confirmed');
-                                        }
-                                    } catch (err) {
-                                        console.error('Failed to start stream during static:', err);
-                                        if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
-                                            console.error('MOBILE: This is likely an autoplay restriction');
-                                        }
-                                    }
+                                    await audioStream.play().catch(err => {
+                                        console.error('Failed to restart paused stream:', err);
+                                    });
+                                } else {
+                                    console.log('Stream is playing as expected, ready for fade-in');
                                 }
-                                
-                                console.log('Stream ready for fade-in');
                             }
                             
                             // Wait for static to finish
@@ -2637,38 +2652,32 @@
                             }
                         }
                         
-                        // 3. Start radio stream with fade in (already buffered!)
+                        // 3. Fade in radio stream volume (already playing at 0 from click handler!)
                         if (audioStream) {
                             console.log('Starting stream fade-in sequence');
                             console.log('Stream paused?', audioStream.paused, 'Current volume:', audioStream.volume);
                             
                             const volEl = document.getElementById('volume-slider');
-                            console.log('Volume slider element:', volEl);
-                            console.log('Volume slider value:', volEl?.value);
                             const v = Number(volEl?.value ?? 35);
-                            console.log('Parsed volume value (v):', v);
-                            console.log('radioScale:', radioScale);
                             const target = Math.min(1, Math.max(0, (v / 100) * radioScale));
                             console.log('Calculated target volume:', target);
                             
-                            // Ensure stream is playing before fading
+                            // Stream should already be playing from click handler
                             if (audioStream.paused) {
-                                console.log('Stream was paused, starting playback...');
-                                try {
-                                    await audioStream.play();
-                                    console.log('Stream started successfully');
-                                } catch (err) {
-                                    console.error('Failed to start stream:', err);
-                                }
+                                console.error('ERROR: Stream is paused when it should be playing!');
+                                console.error('This means mobile user gesture was lost - stream may not play');
                             } else {
-                                console.log('Stream already playing, no need to call play()');
+                                console.log('Stream is playing, fading volume up...');
                             }
                             
-                            // Stream is already playing at 0.001 volume, just fade it up
-                            console.log('About to fade volume from', audioStream.volume, 'to', target);
+                            // Fade up the volume (stream is already playing)
+                            console.log('Fading volume from', audioStream.volume, 'to', target);
                             await fadeIn(audioStream, target, 300);
                             console.log('Stream fade-in complete. Final volume:', audioStream.volume);
-                            console.log('Verifying final volume is correct:', audioStream.volume, '(expected:', target, ')');
+                            
+                            if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
+                                console.log('MOBILE: Final check - paused:', audioStream.paused, 'volume:', audioStream.volume);
+                            }
                         }
                         
                         console.log('=== Audio Transition Complete ===');
