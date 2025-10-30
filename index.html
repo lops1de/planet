@@ -2589,13 +2589,30 @@
                                 console.log('Stream src:', audioStream.src || 'NOT SET');
                                 console.log('Stream current volume:', audioStream.volume);
                                 
-                                // If stream isn't playing yet (edge case), start it
-                                if (audioStream.paused && audioStream.src) {
-                                    console.log('Stream was paused, starting it at 0 volume...');
+                                // MOBILE FIX: If stream has no src or is paused, set it up now
+                                if (!audioStream.src || audioStream.src === window.location.href) {
+                                    console.log('MOBILE: Stream src not set, setting it now...');
+                                    audioStream.src = getFreshStreamUrl();
+                                    console.log('MOBILE: Stream src set to:', audioStream.src);
+                                    audioStream.load();
+                                }
+                                
+                                // If stream isn't playing yet, start it
+                                if (audioStream.paused) {
+                                    console.log('Stream is paused, starting it at 0 volume...');
                                     audioStream.volume = 0;
-                                    await audioStream.play().catch(err => {
-                                        console.warn('Failed to start paused stream:', err);
-                                    });
+                                    try {
+                                        await audioStream.play();
+                                        console.log('Stream started successfully during static');
+                                        if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
+                                            console.log('MOBILE: Stream playback confirmed');
+                                        }
+                                    } catch (err) {
+                                        console.error('Failed to start stream during static:', err);
+                                        if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
+                                            console.error('MOBILE: This is likely an autoplay restriction');
+                                        }
+                                    }
                                 }
                                 
                                 console.log('Stream ready for fade-in');
