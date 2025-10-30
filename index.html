@@ -947,14 +947,6 @@
             }
             
             try {
-                // iOS Safari: Skip visualization for stream to avoid CORS issues
-                // We removed crossOrigin for iOS Safari to fix playback
-                if (deviceInfo.isIOSSafari && label === 'radio stream') {
-                    console.log('iOS Safari: Skipping Web Audio API for radio stream to avoid CORS issues');
-                    console.log('iOS Safari: Stream will play normally without visualization');
-                    return null; // Don't connect to Web Audio API
-                }
-                
                 // Create source from audio element (can only be done once per element)
                 const source = audioContext.createMediaElementSource(audioElement);
                 
@@ -1900,7 +1892,7 @@
 
             audioLoop = new Audio(pathLoop);
             audioLoop.loop = true;
-            audioLoop.volume = 0.03; // 25%
+            audioLoop.volume = 0.03; // 3% - quiet ambient background
             audioLoop.crossOrigin = 'anonymous'; // Enable for Web Audio API
             audioLoop.preload = 'auto'; // iOS needs explicit preload
 
@@ -1910,6 +1902,7 @@
             audioStatic.preload = 'auto';
 
             audioStream = new Audio();
+            audioStream.crossOrigin = 'anonymous'; // HTTPS stream works with CORS on iOS Safari now
             
             // iOS Safari audio configuration
             if (deviceInfo.isIOSSafari) {
@@ -1923,19 +1916,14 @@
                 audioStatic.setAttribute('playsinline', '');
                 audioStatic.setAttribute('webkit-playsinline', '');
                 
-                // iOS Safari needs explicit src set early for some MIME detection
-                audioStream.src = ''; // Empty src first
-                
                 // Check MIME type support
                 const mp3Support = audioStream.canPlayType('audio/mpeg');
                 const mp3Support2 = audioStream.canPlayType('audio/mp3');
                 console.log('iOS Safari audio/mpeg support:', mp3Support);
                 console.log('iOS Safari audio/mp3 support:', mp3Support2);
                 
-                // Don't set crossOrigin for iOS Safari - it can cause playback issues
-                console.log('iOS Safari: NOT setting crossOrigin to avoid CORS issues');
+                console.log('iOS Safari: Using crossOrigin with HTTPS stream');
             } else {
-                audioStream.crossOrigin = 'anonymous';
                 audioStream.preload = 'none'; // Don't buffer ahead for live streams on other platforms
             }
             
@@ -2222,11 +2210,17 @@
                             audio.load(); // Reload to ensure iOS recognizes user gesture
                         }
                     });
+                    
+                    // iOS Safari sometimes ignores initial volume settings, re-set them after user interaction
+                    console.log('iOS Safari: Re-setting volumes after user gesture');
+                    audioLoop.volume = 0.03; // 3% for ambient loop
+                    audioStatic.volume = 1.0; // 100% for static (will be set to 0.6 later)
+                    audioStream.volume = 0; // Start at 0 for fade-in
+                    console.log('iOS Safari: Volumes set - Loop:', audioLoop.volume, 'Static:', audioStatic.volume, 'Stream:', audioStream.volume);
                 }
                 
                 // PRELOAD STREAM EARLY - connect and start buffering at 0 volume
-                // Skip for iOS Safari - let user explicitly start the stream
-                if (!streamSource && audioContext && !deviceInfo.isIOSSafari) {
+                if (!streamSource && audioContext) {
                     try {
                         console.log('Early stream preload: Connecting stream to analyser...');
                         streamSource = setupAudioVisualization(audioStream, 'radio stream');
@@ -2240,14 +2234,18 @@
                         audioStream.volume = 0;
                         audioStream.play().then(() => {
                             console.log('Stream preloaded and buffering in background at 0 volume');
+                            if (deviceInfo.isIOSSafari) {
+                                console.log('iOS Safari: Stream preloaded successfully with HTTPS');
+                            }
                         }).catch(err => {
                             console.warn('Early stream preload play failed:', err);
+                            if (deviceInfo.isIOSSafari) {
+                                console.warn('iOS Safari: May need user interaction to start audio');
+                            }
                         });
                     } catch (err) {
                         console.error('Early stream preload failed:', err);
                     }
-                } else if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari: Skipping early stream preload, waiting for user play button');
                 }
                 
                 audioLoop.play().catch(() => {});
@@ -2277,8 +2275,7 @@
                 }
                 
                 // PRELOAD STREAM EARLY on autoplay success too
-                // Skip for iOS Safari - let user explicitly start the stream
-                if (!streamSource && audioContext && !deviceInfo.isIOSSafari) {
+                if (!streamSource && audioContext) {
                     try {
                         console.log('Early stream preload (autoplay): Connecting stream to analyser...');
                         streamSource = setupAudioVisualization(audioStream, 'radio stream');
@@ -2292,14 +2289,18 @@
                         audioStream.volume = 0;
                         audioStream.play().then(() => {
                             console.log('Stream preloaded and buffering in background at 0 volume (autoplay path)');
+                            if (deviceInfo.isIOSSafari) {
+                                console.log('iOS Safari (autoplay): Stream preloaded successfully with HTTPS');
+                            }
                         }).catch(err => {
                             console.warn('Early stream preload play failed (autoplay):', err);
+                            if (deviceInfo.isIOSSafari) {
+                                console.warn('iOS Safari (autoplay): May need user interaction to start audio');
+                            }
                         });
                     } catch (err) {
                         console.error('Early stream preload failed (autoplay):', err);
                     }
-                } else if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari (autoplay): Skipping early stream preload, waiting for user play button');
                 }
             }).catch(() => {
                 // Autoplay blocked - show our custom prompt
@@ -2338,18 +2339,17 @@
                 }
                 
                 // If stream hasn't been connected yet, connect it first
-                // Skip Web Audio API for iOS Safari to avoid CORS issues
-                if (audioContext && !streamSource && !deviceInfo.isIOSSafari) {
+                if (audioContext && !streamSource) {
                     try {
                         console.log('First play - connecting stream to analyser...');
                         streamSource = setupAudioVisualization(audioStream, 'radio stream');
                         console.log('Stream connected successfully');
+                        if (deviceInfo.isIOSSafari) {
+                            console.log('iOS Safari: Stream connected to Web Audio API with HTTPS');
+                        }
                     } catch (err) {
                         console.error('Failed to connect stream:', err);
                     }
-                } else if (deviceInfo.isIOSSafari && !streamSource) {
-                    console.log('iOS Safari: Skipping Web Audio API connection, playing stream directly');
-                    streamSource = 'skipped'; // Mark as handled to prevent retries
                 }
                 
                 // Get fresh stream URL before playing to ensure live stream
@@ -2373,10 +2373,17 @@
                 if (deviceInfo.isIOSSafari) {
                     const currentVolume = audioStream.volume;
                     audioStream.volume = currentVolume; // Re-set to ensure iOS registers it
+                    console.log('iOS Safari: Stream volume before play:', audioStream.volume);
                 }
                 
                 audioStream.play().then(() => {
                     console.log('Stream playing successfully');
+                    if (deviceInfo.isIOSSafari) {
+                        console.log('iOS Safari: Stream playback confirmed, volume:', audioStream.volume);
+                        // Ensure volume is correct after play starts
+                        setRadioVolumeFromSlider();
+                        console.log('iOS Safari: Volume re-applied from slider:', audioStream.volume);
+                    }
                 }).catch((err) => {
                     console.error('Play failed:', err);
                     // iOS Safari: Try alternative approach
@@ -2384,7 +2391,10 @@
                         console.log('iOS Safari: Retrying playback after error...');
                         setTimeout(() => {
                             audioStream.load();
-                            audioStream.play().catch(e => console.error('iOS Safari retry failed:', e));
+                            audioStream.play().then(() => {
+                                console.log('iOS Safari: Retry successful');
+                                setRadioVolumeFromSlider();
+                            }).catch(e => console.error('iOS Safari retry failed:', e));
                         }, 500);
                     }
                 });
