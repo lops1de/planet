@@ -699,7 +699,7 @@
         // Apply mobile class to body
         if (deviceInfo.isMobile) {
             document.body.classList.add('mobile');
-            console.log('Mobile device detected:', deviceInfo);
+            // console.log('Mobile device detected:', deviceInfo);
         }
         
         // Recheck on resize
@@ -991,7 +991,7 @@
                 // Connect source -> analyser
                 source.connect(analyser);
                 
-                console.log(`Audio visualization connected for ${label}`);
+                // console.log(`Audio visualization connected for ${label}`);
                 return source;
             } catch (err) {
                 console.warn(`Could not setup visualization for ${label}:`, err);
@@ -1022,13 +1022,13 @@
             // Normalize to 0-1 range and apply some scaling for better reactivity
             const level = Math.min(1, (average / 255) * 2.5);
             
-            // Debug logging every 180 frames (~3 seconds at 60fps)
-            audioDebugCounter++;
-            if (audioDebugCounter >= 180) {
-                const activeSource = !audioLoop?.paused ? 'loop' : !audioStream?.paused ? 'stream' : 'none';
-                console.log('Audio level:', level.toFixed(3), 'Raw avg:', average.toFixed(1), 'Active:', activeSource, 'Context:', audioContext?.state);
-                audioDebugCounter = 0;
-            }
+            // Debug logging disabled to prevent console spam
+            // audioDebugCounter++;
+            // if (audioDebugCounter >= 180) {
+            //     const activeSource = !audioLoop?.paused ? 'loop' : !audioStream?.paused ? 'stream' : 'none';
+            //     console.log('Audio level:', level.toFixed(3), 'Raw avg:', average.toFixed(1), 'Active:', activeSource, 'Context:', audioContext?.state);
+            //     audioDebugCounter = 0;
+            // }
             
             lastAudioLevel = level;
             return level;
@@ -1773,7 +1773,7 @@
                 new GridDistortion(scene),
                 new OrbitalRings(scene)
             ];
-            console.log('Initialized', visualizations.length, 'visualizations');
+            // console.log('Initialized', visualizations.length, 'visualizations');
 
             // --- Create the Satellite (opposite side of the moon) ---
             satelliteOrbit = new THREE.Group();
@@ -1858,7 +1858,7 @@
                 currentColorIndex = (currentColorIndex + direction + colorPresets.length) % colorPresets.length;
                 const color = colorPresets[currentColorIndex];
                 document.documentElement.style.setProperty('--filter-color-rgb', color.rgb);
-                console.log('Color changed to:', color.name);
+                // console.log('Color changed to:', color.name);
             }
             
             // Add event listeners for color cycle buttons
@@ -1917,7 +1917,7 @@
             const getFreshStreamUrl = () => {
                 try {
                     const url = `${baseStreamUrl}?t=${Date.now()}&nocache=${Math.random()}`;
-                    console.log('getFreshStreamUrl generated:', url);
+                    // console.log('getFreshStreamUrl generated:', url);
                     if (hasMixedContentIssue) {
                         console.warn('⚠️ This URL will be BLOCKED by the browser (mixed content)');
                     }
@@ -1966,7 +1966,7 @@
             }
             
             // Don't set initial URL - will be set when actually needed
-            console.log('Audio stream element created, will set URL on first use');
+            // console.log('Audio stream element created, will set URL on first use');
             
             // Stream health monitoring and recovery
             let streamStallTimer = null;
@@ -1992,20 +1992,12 @@
                 lastPlayPosition = currentTime;
             };
             
-            // Refresh stream connection every 5 minutes to ensure we're on the live edge
+            // DISABLED: Auto-refresh causes audio dropouts/hitching
+            // Live streams automatically stay on live edge via HTTP chunked transfer
+            // Only refresh on actual stalls/errors (handled by monitorStream above)
             const refreshStreamConnection = () => {
-                if (!audioStream || audioStream.paused) return;
-                
-                const elapsed = (Date.now() - streamStartTime) / 1000;
-                if (elapsed > 300) { // 5 minutes
-                    console.log('Refreshing stream connection to stay on live edge...');
-                    const currentVolume = audioStream.volume;
-                    audioStream.src = getFreshStreamUrl();
-                    audioStream.load();
-                    audioStream.volume = currentVolume;
-                    audioStream.play().catch(() => {});
-                    streamStartTime = Date.now();
-                }
+                // Disabled - no periodic refresh needed for live streams
+                return;
             };
             
             // Handle stream errors with detailed iOS Safari logging
@@ -2079,16 +2071,12 @@
                     clearTimeout(streamStallTimer);
                     streamStallTimer = null;
                 }
-                // Start monitoring
+                // Start monitoring for stalls (every 2 seconds)
                 if (!streamCheckInterval) {
                     streamCheckInterval = setInterval(monitorStream, 2000);
                 }
-                // Start periodic refresh to stay on live edge
-                if (!streamRefreshInterval) {
-                    streamRefreshInterval = setInterval(refreshStreamConnection, 30000); // Check every 30 seconds
-                }
-                // Reset stream start time
-                streamStartTime = Date.now();
+                // Note: Removed periodic refresh - it caused audio dropouts
+                // Live streams stay on edge automatically via HTTP streaming
             });
             
             audioStream.addEventListener('pause', () => {
@@ -2097,81 +2085,52 @@
                     clearInterval(streamCheckInterval);
                     streamCheckInterval = null;
                 }
-                // Stop periodic refresh
-                if (streamRefreshInterval) {
-                    clearInterval(streamRefreshInterval);
-                    streamRefreshInterval = null;
-                }
             });
             
-            // Log when stream starts loading (helps debug caching issues)
+            // Stream event listeners (debug logs commented out to reduce console spam)
             audioStream.addEventListener('loadstart', () => {
-                console.log('Stream loading started:', audioStream.src);
-                console.log('Stream connected to analyser:', !!streamSource);
-                if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari: loadstart event fired');
-                }
+                // console.log('Stream loading started:', audioStream.src);
+                // console.log('Stream connected to analyser:', !!streamSource);
             });
             
-            // Log successful metadata load
             audioStream.addEventListener('loadedmetadata', () => {
-                console.log('Stream metadata loaded successfully');
-                if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari: Metadata loaded - stream format recognized');
-                    console.log('iOS Safari: Duration:', audioStream.duration);
-                }
+                // console.log('Stream metadata loaded successfully');
             });
             
-            // Track when stream has data available
             audioStream.addEventListener('canplay', () => {
-                console.log('Stream can play - data available');
-                if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari: canplay event - ready to play');
-                }
+                // console.log('Stream can play - data available');
             });
             
-            // Track when stream actually starts playing
             audioStream.addEventListener('play', () => {
-                console.log('Stream play event - stream is playing');
-                if (deviceInfo.isIOSSafari) {
-                    console.log('iOS Safari: play event fired successfully');
-                }
-                // Check audio setup after stream starts
-                setTimeout(() => {
-                    checkAudioSetup();
-                }, 1000);
+                // console.log('Stream play event - stream is playing');
+                // Check audio setup after stream starts (commented out to reduce spam)
+                // setTimeout(() => { checkAudioSetup(); }, 1000);
             });
             
-            // Additional iOS debugging events
-            if (deviceInfo.isIOSSafari) {
-                audioStream.addEventListener('loadeddata', () => {
-                    console.log('iOS Safari: loadeddata - first frame loaded');
-                });
-                
-                audioStream.addEventListener('canplaythrough', () => {
-                    console.log('iOS Safari: canplaythrough - can play without buffering');
-                });
-                
-                audioStream.addEventListener('progress', () => {
-                    console.log('iOS Safari: progress - downloading...');
-                });
-                
-                audioStream.addEventListener('suspend', () => {
-                    console.log('iOS Safari: suspend - download suspended');
-                });
-                
-                audioStream.addEventListener('stalled', () => {
-                    console.log('iOS Safari: stalled - download stalled');
-                });
-                
-                audioStream.addEventListener('abort', () => {
-                    console.log('iOS Safari: abort - download aborted');
-                });
-                
-                audioStream.addEventListener('emptied', () => {
-                    console.log('iOS Safari: emptied - media element reset');
-                });
-            }
+            // Additional iOS debugging events (commented out to reduce console spam)
+            // if (deviceInfo.isIOSSafari) {
+            //     audioStream.addEventListener('loadeddata', () => {
+            //         console.log('iOS Safari: loadeddata - first frame loaded');
+            //     });
+            //     audioStream.addEventListener('canplaythrough', () => {
+            //         console.log('iOS Safari: canplaythrough - can play without buffering');
+            //     });
+            //     audioStream.addEventListener('progress', () => {
+            //         console.log('iOS Safari: progress - downloading...');
+            //     });
+            //     audioStream.addEventListener('suspend', () => {
+            //         console.log('iOS Safari: suspend - download suspended');
+            //     });
+            //     audioStream.addEventListener('stalled', () => {
+            //         console.log('iOS Safari: stalled - download stalled');
+            //     });
+            //     audioStream.addEventListener('abort', () => {
+            //         console.log('iOS Safari: abort - download aborted');
+            //     });
+            //     audioStream.addEventListener('emptied', () => {
+            //         console.log('iOS Safari: emptied - media element reset');
+            //     });
+            // }
             
             // Expose debug function to window for manual testing
             window.checkAudioSetup = checkAudioSetup;
@@ -2295,7 +2254,7 @@
             audioLoop.play().then(() => {
                 // Autoplay succeeded! Audio is enabled
                 audioEnabled = true;
-                console.log('Autoplay allowed by browser');
+                // console.log('Autoplay allowed by browser');
                 
                 // Initialize Web Audio API for visualization
                 if (!audioContext) {
@@ -2342,7 +2301,7 @@
                 }
             }).catch(() => {
                 // Autoplay blocked - show our custom prompt
-                console.log('Autoplay blocked, showing prompt');
+                // console.log('Autoplay blocked, showing prompt');
                 promptOverlay?.classList.add('show');
             });
             
@@ -2367,7 +2326,7 @@
             btnPlay?.addEventListener('click', (e) => {
                 e.stopPropagation();
                 
-                console.log('Play button clicked');
+                // console.log('Play button clicked');
                 
                 // Ensure audio context is running - critical for iOS Safari
                 if (audioContext && audioContext.state === 'suspended') {
@@ -2502,14 +2461,14 @@
             // Check if this is the first time opening (before setting hasBeenActivated)
             const isFirstActivation = uiVisible && !hasBeenActivated;
             
-            console.log('Planet clicked - uiVisible:', uiVisible, 'hasBeenActivated:', hasBeenActivated, 'isFirstActivation:', isFirstActivation);
+            // console.log('Planet clicked - uiVisible:', uiVisible, 'hasBeenActivated:', hasBeenActivated, 'isFirstActivation:', isFirstActivation);
             
             // ADD postfx on FIRST activation only, keep it on forever after
             if (isFirstActivation) {
                 const appRootEl = document.getElementById('app-root');
                 appRootEl?.classList.add('postfx-on');
                 hasBeenActivated = true;
-                console.log('Set hasBeenActivated to true');
+                // console.log('Set hasBeenActivated to true');
                 
                 // Ensure audio context is running for visualizations
                 if (audioContext && audioContext.state === 'suspended') {
@@ -2547,17 +2506,17 @@
 
             // Transition audio on FIRST activation only
             if (isFirstActivation) {
-                console.log('FIRST ACTIVATION - Starting audio transition');
+                // console.log('FIRST ACTIVATION - Starting audio transition');
                 const appRootEl = document.getElementById('app-root');
                 
                 // CRITICAL FOR MOBILE: Start stream playing NOW (synchronously) to preserve user gesture
                 // This must happen directly in the click handler, not in an async callback
                 if (audioStream) {
-                    console.log('MOBILE: Starting stream synchronously on user click...');
+                    // console.log('MOBILE: Starting stream synchronously on user click...');
                     
                     // Set up stream if not already set
                     if (!audioStream.src || audioStream.src === window.location.href) {
-                        console.log('MOBILE: Setting stream URL synchronously...');
+                        // console.log('MOBILE: Setting stream URL synchronously...');
                         audioStream.src = getFreshStreamUrl();
                         audioStream.load();
                         
@@ -2565,7 +2524,7 @@
                         if (audioContext && !streamSource) {
                             try {
                                 streamSource = setupAudioVisualization(audioStream, 'radio stream');
-                                console.log('MOBILE: Stream connected to Web Audio API');
+                                // console.log('MOBILE: Stream connected to Web Audio API');
                             } catch (err) {
                                 console.warn('MOBILE: Could not connect to Web Audio API:', err);
                             }
@@ -2575,7 +2534,7 @@
                     // Start playing at 0 volume immediately (synchronously!)
                     audioStream.volume = 0;
                     audioStream.play().then(() => {
-                        console.log('MOBILE: Stream started successfully in click handler');
+                        // console.log('MOBILE: Stream started successfully in click handler');
                     }).catch(err => {
                         console.error('MOBILE: Failed to start stream in click handler:', err);
                     });
@@ -2601,24 +2560,24 @@
                 
                 // Helper: fade in audio
                 const fadeIn = (audio, target = 0.35, ms = 300) => new Promise(resolve => {
-                    console.log('fadeIn called - target:', target, 'ms:', ms, 'audio paused:', audio?.paused);
+                    // console.log('fadeIn called - target:', target, 'ms:', ms, 'audio paused:', audio?.paused);
                     if (!audio) { 
-                        console.log('fadeIn: no audio element provided');
+                        // console.log('fadeIn: no audio element provided');
                         resolve(); 
                         return; 
                     }
                     const startVol = audio.volume || 0.001;
-                    console.log('fadeIn: starting volume:', startVol);
+                    // console.log('fadeIn: starting volume:', startVol);
                     
                     // Only call play if not already playing
                     if (audio.paused) {
-                        console.log('fadeIn: audio is paused, calling play()');
+                        // console.log('fadeIn: audio is paused, calling play()');
                         audio.volume = 0.001;
                         audio.play().catch((err) => {
                             console.error('fadeIn: play() failed:', err);
                         });
                     } else {
-                        console.log('fadeIn: audio already playing, just fading volume');
+                        // console.log('fadeIn: audio already playing, just fading volume');
                     }
                     
                     const t0 = performance.now();
@@ -2629,7 +2588,7 @@
                         if (k < 1) {
                             requestAnimationFrame(tick);
                         } else {
-                            console.log('fadeIn: complete. Final volume:', audio.volume);
+                            // console.log('fadeIn: complete. Final volume:', audio.volume);
                             resolve();
                         }
                     };
@@ -2644,47 +2603,47 @@
                         
                         // 2. Play static.mp3 once
                         if (audioStatic) {
-                            console.log('Playing static sound...');
+                            // console.log('Playing static sound...');
                             audioStatic.volume = 0.6;
                             audioStatic.currentTime = 0;
                             const staticPromise = audioStatic.play();
-                            console.log('Static play() promise created');
+                            // console.log('Static play() promise created');
                             
                             // Stream should already be playing at 0 volume from click handler
                             // Just verify it's ready
                             if (audioStream) {
-                                console.log('Checking stream status during static...');
-                                console.log('Stream paused?', audioStream.paused);
-                                console.log('Stream src:', audioStream.src || 'NOT SET');
-                                console.log('Stream current volume:', audioStream.volume);
+                                // console.log('Checking stream status during static...');
+                                // console.log('Stream paused?', audioStream.paused);
+                                // console.log('Stream src:', audioStream.src || 'NOT SET');
+                                // console.log('Stream current volume:', audioStream.volume);
                                 
                                 // Stream should be playing now - this is just a safety check
                                 if (audioStream.paused) {
                                     console.warn('WARNING: Stream is paused during static - this should not happen');
-                                    console.log('Attempting to restart stream...');
+                                    // console.log('Attempting to restart stream...');
                                     audioStream.volume = 0;
                                     await audioStream.play().catch(err => {
                                         console.error('Failed to restart paused stream:', err);
                                     });
                                 } else {
-                                    console.log('Stream is playing as expected, ready for fade-in');
+                                    // console.log('Stream is playing as expected, ready for fade-in');
                                 }
                             }
                             
                             // Wait for static to finish
                             try {
                                 await staticPromise;
-                                console.log('Static play promise resolved, waiting for ended event...');
+                                // console.log('Static play promise resolved, waiting for ended event...');
                                 
                                 // Wait for static to end, with a timeout fallback
                                 const staticEnded = new Promise(res => audioStatic.addEventListener('ended', res, { once: true }));
                                 const timeout = new Promise(res => setTimeout(() => {
-                                    console.warn('Static timeout - proceeding anyway after 1.5 seconds');
+                                    // console.warn('Static timeout - proceeding anyway after 1.5 seconds');
                                     res();
                                 }, 1500));
                                 
                                 await Promise.race([staticEnded, timeout]);
-                                console.log('Static finished (either ended or timed out)');
+                                // console.log('Static finished (either ended or timed out)');
                             } catch (err) {
                                 console.error('Error waiting for static to finish:', err);
                             }
@@ -2692,33 +2651,33 @@
                         
                         // 3. Fade in radio stream volume (already playing at 0 from click handler!)
                         if (audioStream) {
-                            console.log('Starting stream fade-in sequence');
-                            console.log('Stream paused?', audioStream.paused, 'Current volume:', audioStream.volume);
+                            // console.log('Starting stream fade-in sequence');
+                            // console.log('Stream paused?', audioStream.paused, 'Current volume:', audioStream.volume);
                             
                             const volEl = document.getElementById('volume-slider');
                             const v = Number(volEl?.value ?? 35);
                             const target = Math.min(1, Math.max(0, (v / 100) * radioScale));
-                            console.log('Calculated target volume:', target);
+                            // console.log('Calculated target volume:', target);
                             
                             // Stream should already be playing from click handler
                             if (audioStream.paused) {
                                 console.error('ERROR: Stream is paused when it should be playing!');
                                 console.error('This means mobile user gesture was lost - stream may not play');
                             } else {
-                                console.log('Stream is playing, fading volume up...');
+                                // console.log('Stream is playing, fading volume up...');
                             }
                             
                             // Fade up the volume (stream is already playing)
-                            console.log('Fading volume from', audioStream.volume, 'to', target);
+                            // console.log('Fading volume from', audioStream.volume, 'to', target);
                             await fadeIn(audioStream, target, 300);
-                            console.log('Stream fade-in complete. Final volume:', audioStream.volume);
+                            // console.log('Stream fade-in complete. Final volume:', audioStream.volume);
                             
-                            if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
-                                console.log('MOBILE: Final check - paused:', audioStream.paused, 'volume:', audioStream.volume);
-                            }
+                            // if (deviceInfo.isMobile || deviceInfo.isIOSSafari) {
+                            //     console.log('MOBILE: Final check - paused:', audioStream.paused, 'volume:', audioStream.volume);
+                            // }
                         }
                         
-                        console.log('=== Audio Transition Complete ===');
+                        // console.log('=== Audio Transition Complete ===');
                     } catch (err) {
                         console.error('Audio transition error:', err);
                         console.error('Error stack:', err.stack);
@@ -2772,7 +2731,7 @@
                 nextIndex = 0;
             }
             
-            console.log(`Transitioning from visualization ${prevIndex} to ${nextIndex} (random)`);
+            // console.log(`Transitioning from visualization ${prevIndex} to ${nextIndex} (random)`);
             
             // Start next visualization immediately (no gap)
             visualizations[nextIndex].fadeIn(2.0);
@@ -2787,7 +2746,7 @@
             
             // Set a new random duration for the next visualization
             visualizationDuration = getRandomVisualizationDuration();
-            console.log(`Next visualization will last ${visualizationDuration.toFixed(1)} seconds`);
+            // console.log(`Next visualization will last ${visualizationDuration.toFixed(1)} seconds`);
             
             // Mark as not transitioning after fade-in starts (allows updates immediately)
             setTimeout(() => {
@@ -2802,11 +2761,11 @@
             
             // Pick a random starting visualization
             currentVisualizationIndex = Math.floor(Math.random() * visualizations.length);
-            console.log('Starting visualization system with random visualization:', currentVisualizationIndex);
+            // console.log('Starting visualization system with random visualization:', currentVisualizationIndex);
             
             // Set initial random duration
             visualizationDuration = getRandomVisualizationDuration();
-            console.log(`First visualization will last ${visualizationDuration.toFixed(1)} seconds`);
+            // console.log(`First visualization will last ${visualizationDuration.toFixed(1)} seconds`);
             
             visualizations[currentVisualizationIndex].fadeIn(2);
             visualizationTransitionTimer = 0;
