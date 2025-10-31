@@ -5,6 +5,21 @@
     <meta charset="UTF-8">
     <title>dumpradio</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Live internet radio with audio-reactive 3D visuals">
+    
+    <!-- Open Graph / Discord -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="dumpradio">
+    <meta property="og:description" content="Live internet radio with audio-reactive 3D visuals">
+    <meta property="og:image" content="https://radio.dmpstr.me/android-chrome-512x512.png">
+    <meta property="og:url" content="https://radio.dmpstr.me/">
+    <meta property="og:site_name" content="dumpradio">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="dumpradio">
+    <meta name="twitter:description" content="Live internet radio with audio-reactive 3D visuals">
+    <meta name="twitter:image" content="https://radio.dmpstr.me/android-chrome-512x512.png">
     
     <!-- Favicons -->
     <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -950,14 +965,21 @@
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 256; // Good balance of performance and detail
+                
+                // IMPORTANT: Set analyser to be completely transparent (no audio coloration)
+                analyser.smoothingTimeConstant = 0.3; // Reduced from default 0.8 for more responsive analysis
+                analyser.minDecibels = -90; // Default, but explicitly set for clarity
+                analyser.maxDecibels = -10; // Default, but explicitly set for clarity
+                
                 bufferLength = analyser.frequencyBinCount;
                 dataArray = new Uint8Array(bufferLength);
                 
                 // Create master gain node
                 masterGain = audioContext.createGain();
-                masterGain.gain.value = 1.0;
+                masterGain.gain.value = 1.0; // Unity gain - no amplification or attenuation
                 
                 // Route: analyser -> masterGain -> destination
+                // Note: Analyser is a "transparent" node and doesn't affect audio quality
                 analyser.connect(masterGain);
                 masterGain.connect(audioContext.destination);
             }
