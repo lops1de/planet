@@ -1562,6 +1562,43 @@
             }
         }
 
+        // Stream URL configuration (moved outside init() for global access)
+        const baseStreamUrl = STREAM_URL; // Use the configured URL from the top of the script
+        
+        // Check for mixed content on page load
+        const hasMixedContentIssue = checkMixedContent(baseStreamUrl);
+        if (hasMixedContentIssue) {
+            console.error('════════════════════════════════════════════════════════');
+            console.error('🚨 AUDIO WILL NOT WORK - MIXED CONTENT BLOCKED 🚨');
+            console.error('Your page is HTTPS but the radio stream is HTTP');
+            console.error('Browsers block HTTP content on HTTPS pages for security');
+            console.error('════════════════════════════════════════════════════════');
+            console.error('SOLUTIONS (see STREAM_URL configuration at top of script):');
+            console.error('1. Change STREAM_URL to use HTTPS if your server supports it');
+            console.error('2. Use a CORS proxy: https://corsproxy.io/?http://your-stream-url');
+            console.error('3. Set up a reverse proxy with HTTPS (e.g., Cloudflare, nginx)');
+            console.error('4. Add HTTPS support to your Icecast/streaming server');
+            console.error('════════════════════════════════════════════════════════');
+            console.error('Current URL:', baseStreamUrl);
+            console.error('Page protocol:', window.location.protocol);
+            console.error('════════════════════════════════════════════════════════');
+        }
+        
+        // Helper function to get fresh stream URL with cache-busting (moved outside init() for global access)
+        const getFreshStreamUrl = () => {
+            try {
+                const url = `${baseStreamUrl}?t=${Date.now()}&nocache=${Math.random()}`;
+                // console.log('getFreshStreamUrl generated:', url);
+                if (hasMixedContentIssue) {
+                    console.warn('⚠️ This URL will be BLOCKED by the browser (mixed content)');
+                }
+                return url;
+            } catch (err) {
+                console.error('Error in getFreshStreamUrl:', err);
+                return baseStreamUrl; // Fallback to base URL
+            }
+        };
+
         function init() {
             scene = new THREE.Scene();
             scene.background = null; // Transparent - let the black body background show through unfiltered
@@ -1892,41 +1929,7 @@
 
             const pathLoop = './loop/nighttime_loop.mp3';
             const pathStatic = './loop/static.mp3';
-            const baseStreamUrl = STREAM_URL; // Use the configured URL from the top of the script
-            
-            // Check for mixed content on page load
-            const hasMixedContentIssue = checkMixedContent(baseStreamUrl);
-            if (hasMixedContentIssue) {
-                console.error('════════════════════════════════════════════════════════');
-                console.error('🚨 AUDIO WILL NOT WORK - MIXED CONTENT BLOCKED 🚨');
-                console.error('Your page is HTTPS but the radio stream is HTTP');
-                console.error('Browsers block HTTP content on HTTPS pages for security');
-                console.error('════════════════════════════════════════════════════════');
-                console.error('SOLUTIONS (see STREAM_URL configuration at top of script):');
-                console.error('1. Change STREAM_URL to use HTTPS if your server supports it');
-                console.error('2. Use a CORS proxy: https://corsproxy.io/?http://your-stream-url');
-                console.error('3. Set up a reverse proxy with HTTPS (e.g., Cloudflare, nginx)');
-                console.error('4. Add HTTPS support to your Icecast/streaming server');
-                console.error('════════════════════════════════════════════════════════');
-                console.error('Current URL:', baseStreamUrl);
-                console.error('Page protocol:', window.location.protocol);
-                console.error('════════════════════════════════════════════════════════');
-            }
-            
-            // Helper function to get fresh stream URL with cache-busting
-            const getFreshStreamUrl = () => {
-                try {
-                    const url = `${baseStreamUrl}?t=${Date.now()}&nocache=${Math.random()}`;
-                    // console.log('getFreshStreamUrl generated:', url);
-                    if (hasMixedContentIssue) {
-                        console.warn('⚠️ This URL will be BLOCKED by the browser (mixed content)');
-                    }
-                    return url;
-                } catch (err) {
-                    console.error('Error in getFreshStreamUrl:', err);
-                    return baseStreamUrl; // Fallback to base URL
-                }
-            };
+            // baseStreamUrl, hasMixedContentIssue, and getFreshStreamUrl moved outside init() for global access
 
             audioLoop = new Audio(pathLoop);
             audioLoop.loop = true;
@@ -2053,17 +2056,17 @@
                 }, 1000);
             });
             
-            // Handle stalling/waiting
-            audioStream.addEventListener('waiting', () => {
-                console.warn('Stream buffering...');
-                // If buffering takes too long, reload with fresh URL
-                streamStallTimer = setTimeout(() => {
-                    console.warn('Buffer stall timeout, reloading stream with fresh URL...');
-                    audioStream.src = getFreshStreamUrl();
-                    audioStream.load();
-                    audioStream.play().catch(() => {});
-                }, 5000); // 5 second timeout
-            });
+            // Handle stalling/waiting (commented out - too aggressive, causes more issues than it solves)
+            // audioStream.addEventListener('waiting', () => {
+            //     console.warn('Stream buffering...');
+            //     // If buffering takes too long, reload with fresh URL
+            //     streamStallTimer = setTimeout(() => {
+            //         console.warn('Buffer stall timeout, reloading stream with fresh URL...');
+            //         audioStream.src = getFreshStreamUrl();
+            //         audioStream.load();
+            //         audioStream.play().catch(() => {});
+            //     }, 15000); // 15 second timeout (was 5, too aggressive)
+            // });
             
             audioStream.addEventListener('playing', () => {
                 // Clear stall timer when playing resumes
@@ -2216,34 +2219,22 @@
                     console.log('iOS Safari: Volumes set - Loop:', audioLoop.volume, 'Static:', audioStatic.volume, 'Stream:', audioStream.volume);
                 }
                 
-                // PRELOAD STREAM EARLY - connect and start buffering at 0 volume
-                if (!streamSource && audioContext) {
-                    try {
-                        console.log('Early stream preload: Connecting stream to analyser...');
-                        streamSource = setupAudioVisualization(audioStream, 'radio stream');
-                        
-                        // Set URL and start loading immediately
-                        audioStream.src = getFreshStreamUrl();
-                        console.log('Early stream preload: URL set, loading stream...');
-                        audioStream.load();
-                        
-                        // Start playing silently in background to buffer
-                        audioStream.volume = 0;
-                        audioStream.play().then(() => {
-                            console.log('Stream preloaded and buffering in background at 0 volume');
-                            if (deviceInfo.isIOSSafari) {
-                                console.log('iOS Safari: Stream preloaded successfully with HTTPS');
-                            }
-                        }).catch(err => {
-                            console.warn('Early stream preload play failed:', err);
-                            if (deviceInfo.isIOSSafari) {
-                                console.warn('iOS Safari: May need user interaction to start audio');
-                            }
-                        });
-                    } catch (err) {
-                        console.error('Early stream preload failed:', err);
-                    }
-                }
+                // PRELOAD STREAM EARLY disabled - conflicts with mobile synchronous start
+                // Stream will be loaded on first planet click instead
+                // if (!streamSource && audioContext) {
+                //     try {
+                //         console.log('Early stream preload: Connecting stream to analyser...');
+                //         streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                //         audioStream.src = getFreshStreamUrl();
+                //         audioStream.load();
+                //         audioStream.volume = 0;
+                //         audioStream.play().catch(err => {
+                //             console.warn('Early stream preload play failed:', err);
+                //         });
+                //     } catch (err) {
+                //         console.error('Early stream preload failed:', err);
+                //     }
+                // }
                 
                 audioLoop.play().catch(() => {});
                 // Hide prompt with fade out
@@ -2271,34 +2262,22 @@
                     }
                 }
                 
-                // PRELOAD STREAM EARLY on autoplay success too
-                if (!streamSource && audioContext) {
-                    try {
-                        console.log('Early stream preload (autoplay): Connecting stream to analyser...');
-                        streamSource = setupAudioVisualization(audioStream, 'radio stream');
-                        
-                        // Set URL and start loading immediately
-                        audioStream.src = getFreshStreamUrl();
-                        console.log('Early stream preload (autoplay): URL set, loading stream...');
-                        audioStream.load();
-                        
-                        // Start playing silently in background to buffer
-                        audioStream.volume = 0;
-                        audioStream.play().then(() => {
-                            console.log('Stream preloaded and buffering in background at 0 volume (autoplay path)');
-                            if (deviceInfo.isIOSSafari) {
-                                console.log('iOS Safari (autoplay): Stream preloaded successfully with HTTPS');
-                            }
-                        }).catch(err => {
-                            console.warn('Early stream preload play failed (autoplay):', err);
-                            if (deviceInfo.isIOSSafari) {
-                                console.warn('iOS Safari (autoplay): May need user interaction to start audio');
-                            }
-                        });
-                    } catch (err) {
-                        console.error('Early stream preload failed (autoplay):', err);
-                    }
-                }
+                // PRELOAD STREAM EARLY disabled - conflicts with mobile synchronous start
+                // Stream will be loaded on first planet click instead
+                // if (!streamSource && audioContext) {
+                //     try {
+                //         console.log('Early stream preload (autoplay): Connecting stream to analyser...');
+                //         streamSource = setupAudioVisualization(audioStream, 'radio stream');
+                //         audioStream.src = getFreshStreamUrl();
+                //         audioStream.load();
+                //         audioStream.volume = 0;
+                //         audioStream.play().catch(err => {
+                //             console.warn('Early stream preload play failed (autoplay):', err);
+                //         });
+                //     } catch (err) {
+                //         console.error('Early stream preload failed (autoplay):', err);
+                //     }
+                // }
             }).catch(() => {
                 // Autoplay blocked - show our custom prompt
                 // console.log('Autoplay blocked, showing prompt');
